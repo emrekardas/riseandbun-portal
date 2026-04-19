@@ -1,5 +1,6 @@
 import "server-only";
 import { getTodayOrders, type SquareOrder } from "@/lib/square/orders";
+import { SquareNotConnectedError } from "@/lib/square/client";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
 import { isDrink } from "@/lib/menu/drinks";
@@ -61,6 +62,7 @@ class OrdersCache {
   private pingTimer: NodeJS.Timeout | null = null;
   private inflight: Promise<void> | null = null;
   private ready = false;
+  private warnedNotConnected = false;
 
   start(): void {
     if (this.timer) return;
@@ -172,7 +174,18 @@ class OrdersCache {
     } catch (error) {
       this.lastError =
         error instanceof Error ? error.message : "Unknown poller error";
-       
+
+      if (error instanceof SquareNotConnectedError) {
+        if (!this.warnedNotConnected) {
+          console.warn(
+            "[orders-cache] Square not connected — poller idling. Connect at /api/square/oauth/start.",
+          );
+          this.warnedNotConnected = true;
+        }
+        return;
+      }
+
+      this.warnedNotConnected = false;
       console.error("[orders-cache] poll failed:", this.lastError);
     }
   }
