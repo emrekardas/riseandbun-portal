@@ -27,6 +27,46 @@ function withRobots(response: NextResponse): NextResponse {
   return response;
 }
 
+/**
+ * Behind a reverse proxy (Traefik) `request.url` reports the internal
+ * container address (e.g. `0.0.0.0:3000`). Use the forwarded host so
+ * redirects always land on the public hostname.
+ */
+function publicOriginFromRequest(request: NextRequest): string {
+  const forwardedHost =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+    request.headers.get("host");
+  const forwardedProto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  if (forwardedHost && !isInternalHost(forwardedHost)) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  const envRedirect = process.env.SQUARE_OAUTH_REDIRECT_URI;
+  if (envRedirect) {
+    try {
+      return new URL(envRedirect).origin;
+    } catch {
+      // ignore
+    }
+  }
+
+  return new URL(request.url).origin;
+}
+
+function isInternalHost(host: string): boolean {
+  const lowered = host.toLowerCase();
+  return (
+    lowered.startsWith("0.0.0.0") ||
+    lowered.startsWith("127.") ||
+    lowered.startsWith("localhost") ||
+    lowered.startsWith("[::1]") ||
+    lowered.startsWith("::1")
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -47,7 +87,7 @@ export function proxy(request: NextRequest) {
     );
   }
 
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = new URL("/login", publicOriginFromRequest(request));
   if (pathname !== "/") {
     loginUrl.searchParams.set("next", pathname);
   }

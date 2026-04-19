@@ -4,11 +4,12 @@ import { exchangeCodeForToken } from "@/lib/square/oauth";
 import { writeToken } from "@/lib/square/token-store";
 import { clearLocationCache, listActiveLocations } from "@/lib/square/orders";
 import { getMerchantInfo } from "@/lib/square/merchant";
+import { publicUrl } from "@/lib/http/origin";
 
 const STATE_COOKIE = "rb_oauth_state";
 
 function failureRedirect(req: NextRequest, reason: string): NextResponse {
-  const url = new URL("/", req.url);
+  const url = publicUrl(req, "/");
   url.searchParams.set("square", "error");
   url.searchParams.set("reason", reason);
   return NextResponse.redirect(url);
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
     return failureRedirect(request, "exchange_failed");
   }
 
-  const successUrl = new URL("/", request.url);
+  const successUrl = publicUrl(request, "/");
   successUrl.searchParams.set("square", "connected");
   const response = NextResponse.redirect(successUrl);
   response.cookies.set({
