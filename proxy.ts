@@ -6,7 +6,11 @@ import {
 } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = new Set(["/login"]);
-const PUBLIC_API_PATHS = new Set(["/api/auth/login"]);
+const PUBLIC_API_PATHS = new Set([
+  "/api/auth/login",
+  "/api/health",
+  "/api/webhooks/square",
+]);
 
 /**
  * Block ALL search engines, AI crawlers and previewers from indexing
