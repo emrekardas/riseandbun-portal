@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Coffee, PackageCheck, PlugZap, Undo2 } from "lucide-react";
-import { useOrders } from "@/lib/orders/use-orders";
+import { useOrdersContext } from "@/lib/orders/orders-context";
 import { pruneStatuses, setOrderStatus, useStatusMap } from "@/lib/orders/status-store";
 import type { SquareOrder } from "@/lib/square/orders";
 import type { StatusEntry } from "@/lib/orders/types";
@@ -13,7 +13,7 @@ const COMPLETED_VISIBLE_MS = 30 * 60 * 1000;
 
 export function KdsBoard() {
   const { orders, fetchedAt, loading, error, notConnected, refresh } =
-    useOrders();
+    useOrdersContext();
   const statuses = useStatusMap();
   const [now, setNow] = useState(() => Date.now());
 
@@ -68,8 +68,8 @@ export function KdsBoard() {
     <div className="flex flex-1 flex-col bg-[var(--surface-canvas)]">
       <section className="flex flex-1 flex-col px-4 py-6 sm:px-6">
         <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-base font-semibold text-[var(--text-primary)]">
-            Active orders
+          <h2 className="font-[family-name:var(--font-fredoka)] text-xl font-semibold text-[var(--tenant-brown)]">
+            On the bar
           </h2>
           <span className="inline-flex items-center rounded-full border border-[var(--border-default)] bg-white px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)]">
             {active.length} {active.length === 1 ? "order" : "orders"}
@@ -229,7 +229,7 @@ function CompletedRow({ order, entry, now }: CompletedRowProps) {
         </span>
         <button
           type="button"
-          onClick={() => setOrderStatus(order.id, "ready")}
+          onClick={() => setOrderStatus(order.id, "ready", order.created_at)}
           className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border border-[var(--border-default)] bg-white px-2 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-canvas)] hover:text-[var(--text-primary)]"
           aria-label={`Undo, restore receipt ${receiptDisplay}`}
         >

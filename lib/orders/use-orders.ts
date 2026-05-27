@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SquareOrder } from "@/lib/square/orders";
+import type { OrderStatus, PublicStats, StatusMap } from "./types";
+import {
+  applyStatusEvent,
+  applyStatusReset,
+  applyStatusSnapshot,
+} from "./status-store";
+import { applyStats } from "./client-stats-store";
 
 const FALLBACK_POLL_MS = 10_000;
 
@@ -11,9 +18,18 @@ type OrdersResponse = {
 };
 
 type StreamEvent =
-  | { type: "snapshot"; orders: SquareOrder[]; at: string }
+  | {
+      type: "snapshot";
+      orders: SquareOrder[];
+      statuses: StatusMap;
+      stats: PublicStats;
+      at: string;
+    }
   | { type: "upsert"; order: SquareOrder; at: string }
   | { type: "remove"; orderId: string; at: string }
+  | { type: "status"; orderId: string; status: OrderStatus; updatedAt: string }
+  | { type: "status-reset"; at: string }
+  | { type: "stats"; stats: PublicStats; at: string }
   | { type: "ping"; at: string };
 
 type State = {
@@ -124,6 +140,25 @@ export function useOrders() {
       try {
         const event = JSON.parse(msg.data) as StreamEvent;
         if (event.type === "ping") return;
+
+        // Route status changes to the shared status store (cross-device sync).
+        if (event.type === "status") {
+          applyStatusEvent(event.orderId, event.status, event.updatedAt);
+          return;
+        }
+        if (event.type === "status-reset") {
+          applyStatusReset();
+          return;
+        }
+        if (event.type === "stats") {
+          applyStats(event.stats);
+          return;
+        }
+        if (event.type === "snapshot") {
+          applyStatusSnapshot(event.statuses);
+          applyStats(event.stats);
+        }
+
         setState((prev) => ({
           ...prev,
           orders: applyEvent(prev.orders, event),

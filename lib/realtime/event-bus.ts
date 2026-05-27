@@ -1,6 +1,7 @@
 import "server-only";
 import { EventEmitter } from "node:events";
 import type { SquareOrder } from "@/lib/square/orders";
+import type { OrderStatus, PublicStats, StatusMap } from "@/lib/orders/types";
 
 /**
  * Realtime event bus for KDS updates.
@@ -11,9 +12,18 @@ import type { SquareOrder } from "@/lib/square/orders";
  */
 
 export type OrderEvent =
-  | { type: "snapshot"; orders: SquareOrder[]; at: string }
+  | {
+      type: "snapshot";
+      orders: SquareOrder[];
+      statuses: StatusMap;
+      stats: PublicStats;
+      at: string;
+    }
   | { type: "upsert"; order: SquareOrder; at: string }
   | { type: "remove"; orderId: string; at: string }
+  | { type: "status"; orderId: string; status: OrderStatus; updatedAt: string }
+  | { type: "status-reset"; at: string }
+  | { type: "stats"; stats: PublicStats; at: string }
   | { type: "ping"; at: string };
 
 type Listener = (event: OrderEvent) => void;

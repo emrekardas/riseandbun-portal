@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getEventBus, type OrderEvent } from "@/lib/realtime/event-bus";
 import { ensureCacheStarted } from "@/lib/realtime/orders-cache";
+import { getStatusMap } from "@/lib/orders/server-status-store";
+import { getPublicStats } from "@/lib/orders/stats-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,7 +19,7 @@ export async function GET(request: Request) {
   let closed = false;
 
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       const safeEnqueue = (chunk: string) => {
         if (closed) return;
         try {
@@ -33,6 +35,8 @@ export async function GET(request: Request) {
           sseFormat({
             type: "snapshot",
             orders: cache.snapshot(),
+            statuses: await getStatusMap(),
+            stats: await getPublicStats(),
             at: status.lastFetchedAt ?? new Date().toISOString(),
           }),
         );

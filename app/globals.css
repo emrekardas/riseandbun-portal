@@ -2,9 +2,10 @@
 
 :root {
   /* ── Surfaces ───────────────────────────────────────────── */
-  --surface-canvas: #f6f6f6;
+  --surface-canvas: #f5f1e9;
   --surface-card: #ffffff;
-  --surface-card-hover: #fafafa;
+  --surface-card-hover: #fbf8f2;
+  --surface-warm: #faf5ec;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(0, 0, 0, 0.4);
 
@@ -115,9 +116,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Selection — Square Blue */
+/* Selection — Rise & Bun red */
 ::selection {
-  background-color: var(--brand-primary);
+  background-color: var(--tenant-accent);
   color: white;
 }
 

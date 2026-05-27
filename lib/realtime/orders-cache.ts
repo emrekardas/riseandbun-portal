@@ -4,6 +4,9 @@ import { SquareNotConnectedError } from "@/lib/square/client";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
 import { isDrink } from "@/lib/menu/drinks";
+import { getStatusMap, pruneStatuses } from "@/lib/orders/server-status-store";
+import { getPublicStats } from "@/lib/orders/stats-store";
+import { ensureDailyResetScheduled } from "@/lib/orders/daily-reset";
 import { getEventBus } from "./event-bus";
 
 /**
@@ -144,6 +147,10 @@ class OrdersCache {
         this.fingerprints.delete(id);
       }
 
+      // Keep the status file pruned to currently-active orders so it never
+      // grows unbounded (belt-and-suspenders alongside the 18:00 reset).
+      await pruneStatuses(seen);
+
       this.lastFetchedAt = new Date().toISOString();
       this.lastError = null;
       const wasReady = this.ready;
@@ -153,6 +160,8 @@ class OrdersCache {
         bus.publish({
           type: "snapshot",
           orders: this.snapshot(),
+          statuses: await getStatusMap(),
+          stats: await getPublicStats(),
           at: this.lastFetchedAt,
         });
       } else {
@@ -204,5 +213,6 @@ export function getOrdersCache(): OrdersCache {
 export function ensureCacheStarted(): OrdersCache {
   const cache = getOrdersCache();
   cache.start();
+  ensureDailyResetScheduled();
   return cache;
 }

@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import type { SquareOrder } from "@/lib/square/orders";
 import type { OrderStatus, StatusEntry } from "@/lib/orders/types";
 import { setOrderStatus } from "@/lib/orders/status-store";
+import { LATE_MIN, WARN_MIN } from "@/lib/orders/metrics";
 import { isDrink, isDrinkAddon } from "@/lib/menu/drinks";
 
 type Props = {
@@ -19,9 +20,6 @@ type Props = {
   entry: StatusEntry | undefined;
   now: number;
 };
-
-const WARN_MIN = 3;
-const LATE_MIN = 5;
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   pending: "New",
@@ -83,31 +81,35 @@ function getReceiptDisplay(order: SquareOrder): string {
 }
 
 function getShellClasses(status: OrderStatus, isLate: boolean): string {
+  // Docket: depth via soft elevation (not a hard left bar); warm-paper fill.
+  const base =
+    "border border-[var(--border-subtle)] shadow-[0_3px_10px_-3px_rgba(74,59,50,0.15)] transition-shadow duration-200 hover:shadow-[0_8px_22px_-5px_rgba(74,59,50,0.22)]";
   if (status === "ready") {
-    return "border border-[var(--status-ready-border)]/40 bg-[var(--status-ready-bg)]";
+    return `${base} border-[var(--status-ready-border)]/40 bg-[var(--status-ready-bg)]`;
   }
   if (status === "completed") {
-    return "border-[var(--border-default)] bg-[var(--surface-canvas)] opacity-60";
+    return "border border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60";
   }
   if (isLate) {
-    return "border-y border-r border-[var(--border-default)] border-l-[3px] border-l-[var(--status-late-border)] bg-white";
+    return `${base} bg-[#fffaf7]`; // faint warm-red paper signals urgency
   }
-  return "border border-[var(--border-default)] bg-white";
+  return `${base} bg-[#fffdf8]`; // warm paper
 }
 
 function getPillClasses(status: OrderStatus, isLate: boolean): string {
+  // Rubber-stamp look: outlined, not a filled chip.
   const base =
-    "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider";
+    "inline-flex shrink-0 items-center gap-1 rounded-md border-2 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.1em]";
   if (status === "ready") {
-    return `${base} bg-[var(--status-ready-border)] text-white animate-ready-pulse`;
+    return `${base} border-[var(--status-ready-border)] text-[var(--status-ready-fg)] animate-ready-pulse`;
   }
   if (status === "completed") {
-    return `${base} bg-[var(--surface-canvas)] text-[var(--text-tertiary)]`;
+    return `${base} border-[var(--border-default)] text-[var(--text-tertiary)]`;
   }
   if (isLate) {
-    return `${base} bg-[var(--status-late-bg)] text-[var(--status-late-fg)]`;
+    return `${base} border-[var(--tenant-accent)] text-[var(--tenant-accent)]`;
   }
-  return `${base} bg-[var(--status-new-bg)] text-[var(--status-new-fg)]`;
+  return `${base} border-[var(--border-default)] text-[var(--text-secondary)]`;
 }
 
 function getElapsedClasses(min: number, status: OrderStatus): string {
@@ -137,22 +139,33 @@ export function OrderCard({ order, entry, now }: Props) {
     .reduce((sum, li) => sum + Number(li.quantity ?? 1), 0);
 
   const handleAction = (next: OrderStatus) => {
-    setOrderStatus(order.id, next);
+    setOrderStatus(order.id, next, order.created_at);
   };
 
   return (
     <article
-      className={`animate-card-in flex flex-col overflow-hidden rounded-xl ${getShellClasses(
+      className={`animate-card-in flex h-[360px] flex-col overflow-hidden rounded-xl ${getShellClasses(
         status,
         isLate,
       )}`}
       aria-label={`Receipt ${getReceiptDisplay(order)}, ${STATUS_LABELS[status]}`}
     >
+      {/* Perforated receipt edge */}
+      <span
+        aria-hidden="true"
+        className="block h-[3px] w-full"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, var(--tenant-brown) 1px, transparent 1.4px)",
+          backgroundSize: "7px 3px",
+          opacity: 0.28,
+        }}
+      />
       <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
         <div className="min-w-0 flex-1">
           {order.ticket_name ? (
             <>
-              <h3 className="truncate text-lg font-bold leading-tight text-[var(--text-primary)]">
+              <h3 className="truncate font-[family-name:var(--font-fredoka)] text-xl font-semibold leading-tight text-[var(--tenant-brown)]">
                 {order.ticket_name}
               </h3>
               <div className="mt-0.5 flex items-baseline gap-1.5 font-[family-name:var(--font-jetbrains-mono)] text-sm font-semibold tabular-nums text-[var(--text-secondary)]">
@@ -193,7 +206,12 @@ export function OrderCard({ order, entry, now }: Props) {
         </span>
       </header>
 
-      <ul className="flex-1 px-4">
+      <div
+        aria-hidden="true"
+        className="mx-4 border-t border-dashed border-[var(--border-default)]"
+      />
+
+      <ul className="min-h-0 flex-1 overflow-y-auto px-4">
         {(() => {
           const lineItems = order.line_items ?? [];
           const rank = (name: string | undefined): number => {
@@ -213,7 +231,7 @@ export function OrderCard({ order, entry, now }: Props) {
                 key={item.uid ?? idx}
                 className={`flex flex-col gap-1 py-2.5 text-sm ${
                   idx < arr.length - 1
-                    ? "border-b border-[var(--border-subtle)]"
+                    ? "border-b border-dashed border-[var(--border-default)]"
                     : ""
                 } ${barRelevant ? "" : "opacity-55"}`}
               >
@@ -284,10 +302,10 @@ export function OrderCard({ order, entry, now }: Props) {
       </ul>
 
       <footer
-        className={`flex flex-wrap gap-2 border-t px-3 py-3 ${
+        className={`flex flex-wrap gap-2 border-t border-dashed px-3 py-3 ${
           status === "ready"
-            ? "border-[var(--status-ready-border)]/20 bg-white/40"
-            : "border-[var(--border-subtle)] bg-[var(--surface-card-hover)]/60"
+            ? "border-[var(--status-ready-border)]/30 bg-white/40"
+            : "border-[var(--border-default)] bg-[var(--surface-card-hover)]/60"
         }`}
       >
         {status === "pending" && (

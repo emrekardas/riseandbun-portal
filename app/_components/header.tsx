@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, PlugZap, X } from "lucide-react";
 import { useConnectionStatus } from "@/lib/square/use-connection-status";
 import { MockToolbar } from "./mock-toolbar";
+import { ServiceBar } from "./service-bar";
 
 export function Header() {
   const router = useRouter();
@@ -42,7 +43,8 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-[var(--border-default)] bg-white px-4 sm:px-6">
+    <header className="sticky top-0 z-30 overflow-hidden rounded-b-3xl bg-white shadow-[0_6px_24px_-8px_rgba(74,59,50,0.18)]">
+      <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
       <div className="flex items-center gap-3">
         <Image
           src="/rise-and-bun-16x9-with-background.svg"
@@ -50,7 +52,7 @@ export function Header() {
           width={224}
           height={68}
           priority
-          className="h-8 w-auto select-none"
+          className="h-9 w-auto select-none"
         />
         <span className="hidden h-4 w-px bg-[var(--border-default)] sm:inline-block" />
         <span className="hidden text-sm font-medium text-[var(--text-secondary)] sm:inline">
@@ -81,6 +83,9 @@ export function Header() {
           <span className="hidden sm:inline">Sign out</span>
         </button>
       </div>
+      </div>
+
+      <ServiceBar />
     </header>
   );
 }
