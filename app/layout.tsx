@@ -1,15 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Fredoka, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
   variable: "--font-inter",
-  subsets: ["latin"],
-  display: "swap",
-});
-
-const fredoka = Fredoka({
-  variable: "--font-fredoka",
   subsets: ["latin"],
   display: "swap",
 });
@@ -86,7 +80,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${fredoka.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-[var(--surface-canvas)] text-[var(--text-primary)]">
         {children}

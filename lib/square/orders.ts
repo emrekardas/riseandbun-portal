@@ -23,6 +23,10 @@ export type SquareLineItem = {
   base_price_money?: SquareMoney;
   total_money?: SquareMoney;
   gross_sales_money?: SquareMoney;
+  /** Catalog item VARIATION id — present when the line item maps to a catalog item. */
+  catalog_object_id?: string;
+  /** Set server-side from the live Square catalog's "Buns" category. */
+  is_food?: boolean;
 };
 
 export type SquareTender = {

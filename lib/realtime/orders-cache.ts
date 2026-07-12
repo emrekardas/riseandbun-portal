@@ -1,17 +1,18 @@
 import "server-only";
 import { getTodayOrders, type SquareOrder } from "@/lib/square/orders";
 import { SquareNotConnectedError } from "@/lib/square/client";
+import { markFoodLineItems } from "@/lib/square/food-items";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
-import { isDrink } from "@/lib/menu/drinks";
 import { getStatusMap, pruneStatuses } from "@/lib/orders/server-status-store";
 import { getPublicStats } from "@/lib/orders/stats-store";
 import { ensureDailyResetScheduled } from "@/lib/orders/daily-reset";
 import { getEventBus } from "./event-bus";
 
 /**
- * In-memory cache of today's drink orders. The cache is refreshed by a
- * single background poller that runs in the Node.js server process.
+ * In-memory cache of today's orders, unfiltered — whatever Square returns
+ * is what the KDS shows. The cache is refreshed by a single background
+ * poller that runs in the Node.js server process.
  *
  * SSE clients consume from this cache + the event bus:
  *   1. On connect → receive a `snapshot` event with the full cache
@@ -27,14 +28,6 @@ const PING_INTERVAL_MS = 25_000; // SSE keep-alive (most proxies idle-timeout at
 declare global {
    
   var __kdsCache: OrdersCache | undefined;
-}
-
-function orderHasDrink(order: SquareOrder): boolean {
-  return (order.line_items ?? []).some((li) => isDrink(li.name));
-}
-
-function filterDrinkOrders(orders: SquareOrder[]): SquareOrder[] {
-  return orders.filter(orderHasDrink);
 }
 
 function orderFingerprint(order: SquareOrder): string {
@@ -120,8 +113,8 @@ class OrdersCache {
   private async runFetch(): Promise<void> {
     try {
       const fresh = isMockMode()
-        ? filterDrinkOrders(getMockOrders())
-        : filterDrinkOrders(await getTodayOrders());
+        ? getMockOrders()
+        : await markFoodLineItems(await getTodayOrders());
 
       const bus = getEventBus();
       const seen = new Set<string>();

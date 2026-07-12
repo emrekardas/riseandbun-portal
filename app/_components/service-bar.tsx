@@ -37,8 +37,7 @@ function onTimeColor(pct: number | null): string {
 
 /**
  * Service status board — a warm instrument ribbon, not a row of SaaS tiles.
- * Hairline dividers, espresso numbers in mono, the live status word set in
- * the brand display face (Fredoka).
+ * Hairline dividers, espresso numbers in mono.
  */
 export function ServiceBar() {
   const { orders } = useOrdersContext();
@@ -66,7 +65,7 @@ export function ServiceBar() {
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${color.dot}`} />
         <span className="flex flex-col">
           <span
-            className={`font-[family-name:var(--font-fredoka)] text-lg font-semibold leading-none ${color.word}`}
+            className={`text-lg font-semibold leading-none ${color.word}`}
           >
             {SERVICE_LABELS[service.level]}
           </span>

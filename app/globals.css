@@ -92,7 +92,6 @@
   --color-tenant-accent: var(--tenant-accent);
 
   --font-sans: var(--font-inter);
-  --font-display: var(--font-fredoka);
   --font-mono: var(--font-jetbrains-mono);
 }
 

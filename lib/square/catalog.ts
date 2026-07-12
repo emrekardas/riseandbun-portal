@@ -25,7 +25,10 @@ export type CatalogObject = {
     name?: string;
     description?: string;
     abbreviation?: string;
+    /** @deprecated Square now assigns items to categories via `categories`. */
     category_id?: string;
+    categories?: Array<{ id: string; ordinal?: number }>;
+    reporting_category?: { id: string };
     variations?: Array<{
       id: string;
       type: string;

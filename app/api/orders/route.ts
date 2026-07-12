@@ -1,30 +1,10 @@
 import { NextResponse } from "next/server";
-import { getTodayOrders, type SquareOrder } from "@/lib/square/orders";
+import { getTodayOrders } from "@/lib/square/orders";
 import { SquareApiError, SquareNotConnectedError } from "@/lib/square/client";
+import { markFoodLineItems } from "@/lib/square/food-items";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
-import { isDrink } from "@/lib/menu/drinks";
 import { ensureCacheStarted } from "@/lib/realtime/orders-cache";
-
-function orderHasDrink(order: SquareOrder): boolean {
-  return (order.line_items ?? []).some((li) => isDrink(li.name));
-}
-
-function filterOrdersForKds(orders: SquareOrder[]): {
-  visible: SquareOrder[];
-  filteredOut: number;
-} {
-  const visible: SquareOrder[] = [];
-  let filteredOut = 0;
-  for (const order of orders) {
-    if (orderHasDrink(order)) {
-      visible.push(order);
-    } else {
-      filteredOut += 1;
-    }
-  }
-  return { visible, filteredOut };
-}
 
 export async function GET() {
   // Always try to read from cache first (zero-latency, in-memory).
@@ -46,27 +26,22 @@ export async function GET() {
 
   // Cache not warm yet — do a one-shot fetch so the first paint isn't empty.
   if (isMockMode()) {
-    const all = getMockOrders();
-    const { visible, filteredOut } = filterOrdersForKds(all);
     return NextResponse.json(
       {
-        orders: visible,
+        orders: getMockOrders(),
         fetchedAt: new Date().toISOString(),
         mock: true,
-        filteredOut,
       },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
 
   try {
-    const all = await getTodayOrders();
-    const { visible, filteredOut } = filterOrdersForKds(all);
+    const orders = await markFoodLineItems(await getTodayOrders());
     return NextResponse.json(
       {
-        orders: visible,
+        orders,
         fetchedAt: new Date().toISOString(),
-        filteredOut,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

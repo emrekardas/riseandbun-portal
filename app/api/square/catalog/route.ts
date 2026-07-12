@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listCatalog, type CatalogObject } from "@/lib/square/catalog";
+import { listCatalog } from "@/lib/square/catalog";
 import { SquareApiError, SquareNotConnectedError } from "@/lib/square/client";
 
 function money(m?: { amount?: number; currency?: string }): string {
@@ -23,23 +23,31 @@ export async function GET() {
       categories.map((c) => [c.id, c.category_data?.name ?? "(no name)"]),
     );
 
-    const itemSummary = items.map((it) => ({
-      id: it.id,
-      name: it.item_data?.name ?? "(no name)",
-      category: it.item_data?.category_id
-        ? categoryById.get(it.item_data.category_id) ?? "(unknown)"
-        : "(none)",
-      variations: (it.item_data?.variations ?? []).map((v) => ({
-        id: v.id,
-        name: v.item_variation_data?.name ?? "Regular",
-        price: money(v.item_variation_data?.price_money),
-        pricing_type: v.item_variation_data?.pricing_type,
-      })),
-      modifier_list_ids:
-        it.item_data?.modifier_list_info
-          ?.filter((mli) => mli.enabled !== false)
-          .map((mli) => mli.modifier_list_id) ?? [],
-    }));
+    const itemSummary = items.map((it) => {
+      const categoryIds = (it.item_data?.categories ?? []).map((c) => c.id);
+      const categoryNames = categoryIds.map(
+        (id) => categoryById.get(id) ?? "(unknown)",
+      );
+      const reportingCategoryId = it.item_data?.reporting_category?.id;
+      return {
+        id: it.id,
+        name: it.item_data?.name ?? "(no name)",
+        categories: categoryNames.length > 0 ? categoryNames : ["(none)"],
+        reporting_category: reportingCategoryId
+          ? categoryById.get(reportingCategoryId) ?? "(unknown)"
+          : null,
+        variations: (it.item_data?.variations ?? []).map((v) => ({
+          id: v.id,
+          name: v.item_variation_data?.name ?? "Regular",
+          price: money(v.item_variation_data?.price_money),
+          pricing_type: v.item_variation_data?.pricing_type,
+        })),
+        modifier_list_ids:
+          it.item_data?.modifier_list_info
+            ?.filter((mli) => mli.enabled !== false)
+            .map((mli) => mli.modifier_list_id) ?? [],
+      };
+    });
 
     const modifierListSummary = modifierLists.map((m) => ({
       id: m.id,
@@ -64,7 +72,7 @@ export async function GET() {
     }
     console.log("\nItems:");
     for (const it of itemSummary) {
-      console.log(`  • ${it.name}  [${it.category}]`);
+      console.log(`  • ${it.name}  [${it.categories.join(", ")}]`);
       for (const v of it.variations) {
         console.log(`      ${v.name} — ${v.price} (${v.id})`);
       }

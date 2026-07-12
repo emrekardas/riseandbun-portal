@@ -13,7 +13,6 @@ import type { SquareOrder } from "@/lib/square/orders";
 import type { OrderStatus, StatusEntry } from "@/lib/orders/types";
 import { setOrderStatus } from "@/lib/orders/status-store";
 import { LATE_MIN, WARN_MIN } from "@/lib/orders/metrics";
-import { isDrink, isDrinkAddon } from "@/lib/menu/drinks";
 
 type Props = {
   order: SquareOrder;
@@ -64,6 +63,15 @@ function shortId(id: string): string {
   return id.slice(-6).toUpperCase();
 }
 
+function formatModifiers(modifiers: Array<{ name?: string }> | undefined): string {
+  const names = (modifiers ?? [])
+    .map((mod) => mod.name)
+    .filter((name): name is string => Boolean(name));
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 function formatMoney(
   money: { amount?: number; currency?: string } | undefined,
 ): string | null {
@@ -80,36 +88,33 @@ function getReceiptDisplay(order: SquareOrder): string {
   return shortId(order.id).slice(-4);
 }
 
-function getShellClasses(status: OrderStatus, isLate: boolean): string {
-  // Docket: depth via soft elevation (not a hard left bar); warm-paper fill.
+function getShellClasses(status: OrderStatus): string {
+  // Flat card, quiet elevation — no paper/receipt texture.
   const base =
-    "border border-[var(--border-subtle)] shadow-[0_3px_10px_-3px_rgba(74,59,50,0.15)] transition-shadow duration-200 hover:shadow-[0_8px_22px_-5px_rgba(74,59,50,0.22)]";
+    "border border-[var(--border-subtle)] shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-shadow duration-200 hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)]";
   if (status === "ready") {
     return `${base} border-[var(--status-ready-border)]/40 bg-[var(--status-ready-bg)]`;
   }
   if (status === "completed") {
     return "border border-[var(--border-subtle)] bg-[var(--surface-canvas)] opacity-60";
   }
-  if (isLate) {
-    return `${base} bg-[#fffaf7]`; // faint warm-red paper signals urgency
-  }
-  return `${base} bg-[#fffdf8]`; // warm paper
+  return `${base} bg-[var(--surface-card)]`;
 }
 
 function getPillClasses(status: OrderStatus, isLate: boolean): string {
-  // Rubber-stamp look: outlined, not a filled chip.
+  // Flat tinted chip, not an outlined rubber stamp.
   const base =
-    "inline-flex shrink-0 items-center gap-1 rounded-md border-2 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.1em]";
+    "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold";
   if (status === "ready") {
-    return `${base} border-[var(--status-ready-border)] text-[var(--status-ready-fg)] animate-ready-pulse`;
+    return `${base} bg-[var(--status-ready-bg)] text-[var(--status-ready-fg)] animate-ready-pulse`;
   }
   if (status === "completed") {
-    return `${base} border-[var(--border-default)] text-[var(--text-tertiary)]`;
+    return `${base} bg-[var(--status-completed-bg)] text-[var(--text-tertiary)]`;
   }
   if (isLate) {
-    return `${base} border-[var(--tenant-accent)] text-[var(--tenant-accent)]`;
+    return `${base} bg-[var(--status-late-bg)] text-[var(--status-late-fg)]`;
   }
-  return `${base} border-[var(--border-default)] text-[var(--text-secondary)]`;
+  return `${base} bg-[var(--status-new-bg)] text-[var(--status-new-fg)]`;
 }
 
 function getElapsedClasses(min: number, status: OrderStatus): string {
@@ -134,9 +139,10 @@ export function OrderCard({ order, entry, now }: Props) {
   const isLate = min >= LATE_MIN && status === "pending";
 
   const StatusIcon = isLate ? AlertTriangle : STATUS_ICONS[status];
-  const drinkCount = (order.line_items ?? [])
-    .filter((li) => isDrink(li.name))
-    .reduce((sum, li) => sum + Number(li.quantity ?? 1), 0);
+  const itemCount = (order.line_items ?? []).reduce(
+    (sum, li) => sum + Number(li.quantity ?? 1),
+    0,
+  );
 
   const handleAction = (next: OrderStatus) => {
     setOrderStatus(order.id, next, order.created_at);
@@ -146,26 +152,14 @@ export function OrderCard({ order, entry, now }: Props) {
     <article
       className={`animate-card-in flex h-[360px] flex-col overflow-hidden rounded-xl ${getShellClasses(
         status,
-        isLate,
       )}`}
       aria-label={`Receipt ${getReceiptDisplay(order)}, ${STATUS_LABELS[status]}`}
     >
-      {/* Perforated receipt edge */}
-      <span
-        aria-hidden="true"
-        className="block h-[3px] w-full"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, var(--tenant-brown) 1px, transparent 1.4px)",
-          backgroundSize: "7px 3px",
-          opacity: 0.28,
-        }}
-      />
       <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
         <div className="min-w-0 flex-1">
           {order.ticket_name ? (
             <>
-              <h3 className="truncate font-[family-name:var(--font-fredoka)] text-xl font-semibold leading-tight text-[var(--tenant-brown)]">
+              <h3 className="truncate text-xl font-semibold leading-tight text-[var(--tenant-brown)]">
                 {order.ticket_name}
               </h3>
               <div className="mt-0.5 flex items-baseline gap-1.5 font-[family-name:var(--font-jetbrains-mono)] text-sm font-semibold tabular-nums text-[var(--text-secondary)]">
@@ -208,92 +202,62 @@ export function OrderCard({ order, entry, now }: Props) {
 
       <div
         aria-hidden="true"
-        className="mx-4 border-t border-dashed border-[var(--border-default)]"
+        className="mx-4 border-t border-[var(--border-subtle)]"
       />
 
       <ul className="min-h-0 flex-1 overflow-y-auto px-4">
-        {(() => {
-          const lineItems = order.line_items ?? [];
-          const rank = (name: string | undefined): number => {
-            if (isDrink(name)) return 0;
-            if (isDrinkAddon(name)) return 1;
-            return 2;
-          };
-          const sorted = [...lineItems].sort(
-            (a, b) => rank(a.name) - rank(b.name),
-          );
-          return sorted.map((item, idx, arr) => {
-            const addon = isDrinkAddon(item.name);
-            const drink = isDrink(item.name);
-            const barRelevant = drink || addon;
-            return (
-              <li
-                key={item.uid ?? idx}
-                className={`flex flex-col gap-1 py-2.5 text-sm ${
-                  idx < arr.length - 1
-                    ? "border-b border-dashed border-[var(--border-default)]"
-                    : ""
-                } ${barRelevant ? "" : "opacity-55"}`}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <div className="flex items-baseline gap-2 min-w-0">
-                    <span
-                      className={`shrink-0 font-[family-name:var(--font-jetbrains-mono)] text-base font-bold tabular-nums ${
-                        drink
-                          ? "text-[var(--text-primary)]"
-                          : addon
-                          ? "text-[var(--text-secondary)]"
-                          : "text-[var(--text-secondary)]"
-                      }`}
-                    >
-                      {item.quantity ?? "1"}×
-                    </span>
-                    <span
-                      className={`truncate ${
-                        drink
-                          ? "font-semibold text-[var(--text-primary)]"
-                          : addon
-                          ? "font-medium text-[var(--text-primary)]"
-                          : "font-medium text-[var(--text-secondary)] line-through decoration-[var(--text-tertiary)]/40 decoration-1"
-                      }`}
-                    >
-                      {item.name ?? "Item"}
-                    </span>
-                  </div>
-                  {!barRelevant && (
-                    <span className="shrink-0 rounded-md bg-[var(--surface-canvas)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
-                      Food
+        {[...(order.line_items ?? [])]
+          .sort((a, b) => Number(Boolean(a.is_food)) - Number(Boolean(b.is_food)))
+          .map((item, idx, arr) => (
+          <li
+            key={item.uid ?? idx}
+            className={`flex flex-col gap-1 py-2.5 text-sm ${
+              idx < arr.length - 1
+                ? "border-b border-[var(--border-subtle)]"
+                : ""
+            } ${item.is_food ? "opacity-55" : ""}`}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="shrink-0 font-[family-name:var(--font-jetbrains-mono)] text-base font-bold tabular-nums text-[var(--text-primary)]">
+                  {item.quantity ?? "1"}×
+                </span>
+                <span
+                  className={`truncate ${
+                    item.is_food
+                      ? "font-medium text-[var(--text-secondary)] line-through decoration-[var(--text-tertiary)]/40 decoration-1"
+                      : "font-semibold text-[var(--text-primary)]"
+                  }`}
+                >
+                  {item.name ?? "Item"}
+                  {item.modifiers && item.modifiers.length > 0 && (
+                    <span className="font-normal text-[var(--text-secondary)]">
+                      {" "}
+                      with {formatModifiers(item.modifiers)}
                     </span>
                   )}
-                  {addon && (
-                    <span className="shrink-0 rounded-md bg-[var(--brand-primary-tint)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-primary)]">
-                      Add-on
-                    </span>
-                  )}
-                  {drink &&
-                    item.variation_name &&
-                    item.variation_name.toLowerCase() !== "regular" && (
-                      <span className="shrink-0 text-xs font-medium text-[var(--text-secondary)]">
-                        {item.variation_name}
-                      </span>
-                    )}
-                </div>
-                {barRelevant && item.modifiers && item.modifiers.length > 0 && (
-                  <ul className="space-y-0.5 pl-7 text-xs text-[var(--text-secondary)]">
-                    {item.modifiers.map((mod, mIdx) => (
-                      <li key={mod.uid ?? mIdx}>+ {mod.name}</li>
-                    ))}
-                  </ul>
+                </span>
+              </div>
+              {item.is_food && (
+                <span className="shrink-0 rounded-md bg-[var(--surface-canvas)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  Food
+                </span>
+              )}
+              {!item.is_food &&
+                item.variation_name &&
+                item.variation_name.toLowerCase() !== "regular" && (
+                  <span className="shrink-0 text-xs font-medium text-[var(--text-secondary)]">
+                    {item.variation_name}
+                  </span>
                 )}
-                {barRelevant && item.note && (
-                  <p className="ml-7 mt-1 rounded-md bg-[var(--status-progress-bg)] px-2 py-1 text-xs italic text-[var(--status-progress-fg)]">
-                    “{item.note}”
-                  </p>
-                )}
-              </li>
-            );
-          });
-        })()}
+            </div>
+            {item.note && (
+              <p className="ml-7 mt-1 rounded-md bg-[var(--status-progress-bg)] px-2 py-1 text-xs italic text-[var(--status-progress-fg)]">
+                “{item.note}”
+              </p>
+            )}
+          </li>
+        ))}
         {(!order.line_items || order.line_items.length === 0) && (
           <li className="py-2.5 text-sm italic text-[var(--text-tertiary)]">
             No item details
@@ -302,10 +266,10 @@ export function OrderCard({ order, entry, now }: Props) {
       </ul>
 
       <footer
-        className={`flex flex-wrap gap-2 border-t border-dashed px-3 py-3 ${
+        className={`flex flex-wrap gap-2 border-t px-3 py-3 ${
           status === "ready"
             ? "border-[var(--status-ready-border)]/30 bg-white/40"
-            : "border-[var(--border-default)] bg-[var(--surface-card-hover)]/60"
+            : "border-[var(--border-subtle)] bg-[var(--surface-card-hover)]/60"
         }`}
       >
         {status === "pending" && (
@@ -334,7 +298,7 @@ export function OrderCard({ order, entry, now }: Props) {
               className={BTN_PRIMARY_DONE}
             >
               <PackageCheck size={16} strokeWidth={2} aria-hidden="true" />
-              {`Done · ${drinkCount} ${drinkCount === 1 ? "drink" : "drinks"}`}
+              {`Done · ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
             </button>
           </>
         )}

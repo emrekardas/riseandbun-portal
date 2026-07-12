@@ -6,7 +6,6 @@ import { useOrdersContext } from "@/lib/orders/orders-context";
 import { pruneStatuses, setOrderStatus, useStatusMap } from "@/lib/orders/status-store";
 import type { SquareOrder } from "@/lib/square/orders";
 import type { StatusEntry } from "@/lib/orders/types";
-import { isDrink } from "@/lib/menu/drinks";
 import { OrderCard } from "./order-card";
 
 const COMPLETED_VISIBLE_MS = 30 * 60 * 1000;
@@ -68,7 +67,7 @@ export function KdsBoard() {
     <div className="flex flex-1 flex-col bg-[var(--surface-canvas)]">
       <section className="flex flex-1 flex-col px-4 py-6 sm:px-6">
         <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="font-[family-name:var(--font-fredoka)] text-xl font-semibold text-[var(--tenant-brown)]">
+          <h2 className="text-xl font-semibold text-[var(--tenant-brown)]">
             On the bar
           </h2>
           <span className="inline-flex items-center rounded-full border border-[var(--border-default)] bg-white px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)]">
@@ -139,7 +138,7 @@ function CompletedStrip({ orders, statuses, now }: CompletedStripProps) {
         aria-expanded={expanded}
       >
         <span className="inline-flex items-baseline gap-2">
-          <span className="font-[family-name:var(--font-fredoka)] text-base font-semibold text-[var(--tenant-brown)]">
+          <span className="text-base font-semibold text-[var(--tenant-brown)]">
             Recently done
           </span>
           <span className="inline-flex items-center rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[11px] font-semibold text-[var(--text-secondary)]">
@@ -174,8 +173,8 @@ type CompletedRowProps = {
 };
 
 function CompletedRow({ order, entry, now }: CompletedRowProps) {
-  const drinks = (order.line_items ?? []).filter((li) => isDrink(li.name));
-  const drinkCount = drinks.reduce(
+  const items = order.line_items ?? [];
+  const itemCount = items.reduce(
     (sum, li) => sum + Number(li.quantity ?? 1),
     0,
   );
@@ -191,11 +190,11 @@ function CompletedRow({ order, entry, now }: CompletedRowProps) {
   const receiptDisplay = (
     order.receipt_number ?? order.id.slice(-4)
   ).toUpperCase();
-  const itemSummary = drinks
+  const itemSummary = items
     .slice(0, 2)
     .map((li) => `${li.quantity ?? 1}× ${li.name ?? "Item"}`)
     .join(", ");
-  const extra = drinks.length > 2 ? ` +${drinks.length - 2} more` : "";
+  const extra = items.length > 2 ? ` +${items.length - 2} more` : "";
 
   return (
     <li className="flex items-center gap-3 bg-white px-3 py-2.5 text-sm hover:bg-[var(--surface-canvas)]/60">
@@ -219,7 +218,7 @@ function CompletedRow({ order, entry, now }: CompletedRowProps) {
       </span>
       <span className="ml-auto inline-flex items-center gap-2 shrink-0 text-xs">
         <span className="hidden font-[family-name:var(--font-jetbrains-mono)] tabular-nums text-[var(--text-tertiary)] sm:inline">
-          {drinkCount} {drinkCount === 1 ? "drink" : "drinks"}
+          {itemCount} {itemCount === 1 ? "item" : "items"}
         </span>
         <span className="font-[family-name:var(--font-jetbrains-mono)] tabular-nums text-[var(--text-secondary)]">
           {completedAt}
