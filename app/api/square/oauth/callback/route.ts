@@ -5,39 +5,43 @@ import { writeToken } from "@/lib/square/token-store";
 import { clearLocationCache, listActiveLocations } from "@/lib/square/orders";
 import { getMerchantInfo } from "@/lib/square/merchant";
 import { publicUrl } from "@/lib/http/origin";
-import { tenantFromRequest, type TenantId } from "@/lib/tenants";
+import { isTenantId, type TenantId } from "@/lib/tenants";
 
 const STATE_COOKIE = "rb_oauth_state";
 
 function failureRedirect(
   req: NextRequest,
-  tenant: TenantId,
+  tenant: TenantId | null,
   reason: string,
 ): NextResponse {
-  const url = publicUrl(req, `/${tenant}`);
+  const url = publicUrl(req, tenant ? `/${tenant}` : "/");
   url.searchParams.set("square", "error");
   url.searchParams.set("reason", reason);
   return NextResponse.redirect(url);
 }
 
 export async function GET(request: NextRequest) {
-  const tenant = tenantFromRequest(request);
   const url = request.nextUrl;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const responseType = url.searchParams.get("response_type");
   const sellerError = url.searchParams.get("error");
 
+  // The tenant travels inside `state` ("<tenant>.<random>") because Square
+  // apps get a single shared redirect URL — see the oauth start route.
+  const tenantPart = state?.split(".")[0];
+  const tenant: TenantId | null = isTenantId(tenantPart) ? tenantPart : null;
+
   if (sellerError) {
     console.error(
-      `[Square OAuth] ${tenant}: seller denied or returned an error: ${sellerError}`,
+      `[Square OAuth] ${tenant ?? "?"}: seller denied or returned an error: ${sellerError}`,
     );
     return failureRedirect(request, tenant, sellerError);
   }
 
   const expectedState = request.cookies.get(STATE_COOKIE)?.value;
-  if (!state || !expectedState || state !== expectedState) {
-    console.error(`[Square OAuth] ${tenant}: invalid state parameter`);
+  if (!state || !expectedState || state !== expectedState || !tenant) {
+    console.error("[Square OAuth] invalid state parameter");
     return failureRedirect(request, tenant, "invalid_state");
   }
   if (responseType !== "code" || !code) {
@@ -85,7 +89,7 @@ export async function GET(request: NextRequest) {
   response.cookies.set({
     name: STATE_COOKIE,
     value: "",
-    path: `/${tenant}`,
+    path: "/",
     maxAge: 0,
   });
   return response;

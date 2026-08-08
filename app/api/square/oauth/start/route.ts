@@ -7,15 +7,20 @@ import { tenantFromRequest } from "@/lib/tenants";
 
 const STATE_COOKIE = "rb_oauth_state";
 
+/**
+ * Square allows exactly ONE redirect URL per app, so every tenant shares the
+ * bare `/api/square/oauth/callback` endpoint registered in the dashboard.
+ * The tenant is carried through the flow inside the OAuth `state`
+ * (`<tenant>.<random>`), and the state cookie is root-scoped so the shared
+ * callback receives it.
+ */
 export async function GET(request: NextRequest) {
   const tenant = tenantFromRequest(request);
-  const state = randomBytes(24).toString("hex");
+  const state = `${tenant}.${randomBytes(24).toString("hex")}`;
 
-  // Per-tenant callback — must be whitelisted in the Square app's
-  // OAuth settings (one entry per tenant).
   const redirectUri = publicUrl(
     request,
-    `/${tenant}/api/square/oauth/callback`,
+    "/api/square/oauth/callback",
   ).toString();
 
   const response = NextResponse.redirect(
@@ -27,7 +32,7 @@ export async function GET(request: NextRequest) {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    path: `/${tenant}`,
+    path: "/",
     maxAge: 600,
   });
   return response;

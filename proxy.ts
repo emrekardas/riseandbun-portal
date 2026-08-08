@@ -18,6 +18,11 @@ const PUBLIC_API_PATHS = new Set([
   "/api/auth/login",
   "/api/health",
   "/api/webhooks/square",
+  // Shared OAuth callback — Square apps get a single redirect URL, so this
+  // bare endpoint serves every tenant. It stays public because tenant
+  // session cookies are path-scoped and wouldn't reach it; CSRF protection
+  // comes from the OAuth state check inside the handler.
+  "/api/square/oauth/callback",
 ]);
 
 /**
