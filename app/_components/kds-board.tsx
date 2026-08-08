@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Coffee, PackageCheck, PlugZap, Undo2 } from "lucide-react";
 import { useOrdersContext } from "@/lib/orders/orders-context";
 import { pruneStatuses, setOrderStatus, useStatusMap } from "@/lib/orders/status-store";
+import { tenantBase } from "@/lib/tenant-client";
 import type { SquareOrder } from "@/lib/square/orders";
 import type { StatusEntry } from "@/lib/orders/types";
 import { OrderCard } from "./order-card";
@@ -254,7 +255,7 @@ function NotConnectedCard() {
         Rise &amp; Bun Square account.
       </p>
       <a
-        href="/api/square/oauth/start"
+        href={`${tenantBase()}/api/square/oauth/start`}
         className="mt-5 inline-flex h-11 cursor-pointer items-center gap-2 rounded-lg bg-[var(--brand-primary)] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[var(--brand-primary-hover)] active:bg-[var(--brand-primary-pressed)]"
       >
         <PlugZap size={16} strokeWidth={1.75} aria-hidden="true" />

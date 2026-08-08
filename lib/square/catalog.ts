@@ -1,5 +1,6 @@
 import "server-only";
 import { squareFetch } from "./client";
+import type { TenantId } from "@/lib/tenants";
 
 export type CatalogObject = {
   id: string;
@@ -52,6 +53,7 @@ type ListCatalogResponse = {
 };
 
 export async function listCatalog(
+  tenant: TenantId,
   types: string[] = ["ITEM", "CATEGORY", "MODIFIER_LIST"],
 ): Promise<CatalogObject[]> {
   const all: CatalogObject[] = [];
@@ -62,6 +64,7 @@ export async function listCatalog(
     if (cursor) params.set("cursor", cursor);
 
     const data = await squareFetch<ListCatalogResponse>(
+      tenant,
       `/v2/catalog/list?${params.toString()}`,
       { method: "GET" },
     );

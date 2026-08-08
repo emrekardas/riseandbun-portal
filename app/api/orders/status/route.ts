@@ -5,6 +5,7 @@ import {
 } from "@/lib/orders/server-status-store";
 import { recordServed } from "@/lib/orders/stats-store";
 import { getOrdersCache } from "@/lib/realtime/orders-cache";
+import { tenantFromRequest } from "@/lib/tenants";
 import type { OrderStatus } from "@/lib/orders/types";
 
 export const runtime = "nodejs";
@@ -32,6 +33,8 @@ function isOrderStatus(value: unknown): value is OrderStatus {
  * unauthenticated request gets a 401 before reaching here.
  */
 export async function POST(request: Request) {
+  const tenant = tenantFromRequest(request);
+
   let body: unknown;
   try {
     body = await request.json();
@@ -52,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
   }
 
-  const entry = await setOrderStatus(orderId, status);
+  const entry = await setOrderStatus(tenant, orderId, status);
 
   // First time an order reaches "ready" = drink made / served at the bar.
   // Record it for the daily throughput / on-time stats (idempotent).
@@ -65,12 +68,12 @@ export async function POST(request: Request) {
     const createdAt =
       typeof bodyCreatedAt === "string" && bodyCreatedAt
         ? bodyCreatedAt
-        : getOrdersCache()
+        : getOrdersCache(tenant)
             .snapshot()
             .find((o) => o.id === orderId)?.created_at;
     if (createdAt) {
       const prepMs = Date.now() - new Date(createdAt).getTime();
-      await recordServed(orderId, prepMs);
+      await recordServed(tenant, orderId, prepMs);
     }
   }
 
@@ -81,8 +84,8 @@ export async function POST(request: Request) {
 }
 
 /** Clear all order statuses (manual reset / mock reseed). */
-export async function DELETE() {
-  await clearAllStatuses();
+export async function DELETE(request: Request) {
+  await clearAllStatuses(tenantFromRequest(request));
   return NextResponse.json(
     { ok: true },
     { headers: { "Cache-Control": "no-store" } },

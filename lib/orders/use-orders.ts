@@ -9,6 +9,7 @@ import {
   applyStatusSnapshot,
 } from "./status-store";
 import { applyStats } from "./client-stats-store";
+import { tenantBase } from "@/lib/tenant-client";
 
 const FALLBACK_POLL_MS = 10_000;
 
@@ -71,9 +72,11 @@ export function useOrders() {
 
   const fetchOnce = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetch("/api/orders", { cache: "no-store" });
+      const res = await fetch(`${tenantBase()}/api/orders`, {
+        cache: "no-store",
+      });
       if (res.status === 401) {
-        window.location.href = "/login";
+        window.location.href = "/";
         return;
       }
       if (res.status === 409) {
@@ -132,7 +135,7 @@ export function useOrders() {
 
   const connectSse = useCallback(() => {
     if (sourceRef.current) return;
-    const source = new EventSource("/api/orders/stream");
+    const source = new EventSource(`${tenantBase()}/api/orders/stream`);
     sourceRef.current = source;
 
     source.onmessage = (msg) => {

@@ -7,6 +7,7 @@ import {
   createHash,
   randomBytes,
 } from "node:crypto";
+import type { TenantId } from "@/lib/tenants";
 
 export type SquareToken = {
   accessToken: string;
@@ -17,14 +18,17 @@ export type SquareToken = {
   obtainedAt: string;
 };
 
-const TOKEN_FILENAME = "square-token.json";
+const LEGACY_TOKEN_FILENAME = "square-token.json";
 const ALGO = "aes-256-gcm";
 
-function getStoragePath(): string {
-  const dataDir = process.env.DATA_DIR
+function getDataDir(): string {
+  return process.env.DATA_DIR
     ? path.resolve(process.env.DATA_DIR)
     : path.resolve(process.cwd(), ".data");
-  return path.join(dataDir, TOKEN_FILENAME);
+}
+
+function getStoragePath(tenant: TenantId): string {
+  return path.join(getDataDir(), `square-token-${tenant}.json`);
 }
 
 function getKey(): Buffer {
@@ -63,34 +67,68 @@ function decrypt(payload: string): string {
   return dec.toString("utf8");
 }
 
-let cache: SquareToken | null = null;
+const cache = new Map<TenantId, SquareToken>();
 
-export async function readToken(): Promise<SquareToken | null> {
-  if (cache) return cache;
+/**
+ * One-time migration: the pre-multi-tenant deployment stored Margate's
+ * token at `square-token.json`. Adopt it on first read.
+ */
+async function migrateLegacyToken(tenant: TenantId): Promise<void> {
+  if (tenant !== "margate") return;
+  const legacyPath = path.join(getDataDir(), LEGACY_TOKEN_FILENAME);
   try {
-    const raw = await fs.readFile(getStoragePath(), "utf8");
+    const raw = await fs.readFile(legacyPath, "utf8");
+    await fs.mkdir(getDataDir(), { recursive: true });
+    await fs.writeFile(getStoragePath(tenant), raw, { mode: 0o600 });
+    await fs.unlink(legacyPath);
+    console.log("[token-store] migrated legacy square-token.json → margate");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
+
+export async function readToken(tenant: TenantId): Promise<SquareToken | null> {
+  const cached = cache.get(tenant);
+  if (cached) return cached;
+  try {
+    const raw = await fs.readFile(getStoragePath(tenant), "utf8");
     const decrypted = decrypt(raw);
     const parsed = JSON.parse(decrypted) as SquareToken;
-    cache = parsed;
+    cache.set(tenant, parsed);
     return parsed;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await migrateLegacyToken(tenant);
+      try {
+        const raw = await fs.readFile(getStoragePath(tenant), "utf8");
+        const decrypted = decrypt(raw);
+        const parsed = JSON.parse(decrypted) as SquareToken;
+        cache.set(tenant, parsed);
+        return parsed;
+      } catch (retryErr) {
+        if ((retryErr as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw retryErr;
+      }
+    }
     throw err;
   }
 }
 
-export async function writeToken(token: SquareToken): Promise<void> {
-  const filePath = getStoragePath();
+export async function writeToken(
+  tenant: TenantId,
+  token: SquareToken,
+): Promise<void> {
+  const filePath = getStoragePath(tenant);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const payload = encrypt(JSON.stringify(token));
   await fs.writeFile(filePath, payload, { mode: 0o600 });
-  cache = token;
+  cache.set(tenant, token);
 }
 
-export async function clearToken(): Promise<void> {
-  cache = null;
+export async function clearToken(tenant: TenantId): Promise<void> {
+  cache.delete(tenant);
   try {
-    await fs.unlink(getStoragePath());
+    await fs.unlink(getStoragePath(tenant));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }

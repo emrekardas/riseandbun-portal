@@ -1,5 +1,6 @@
 import "server-only";
 import { squareFetch } from "./client";
+import type { TenantId } from "@/lib/tenants";
 
 export type SquareMoney = {
   amount?: number;
@@ -87,17 +88,22 @@ type SearchOrdersResponse = {
   cursor?: string;
 };
 
-let cachedLocations: SquareLocation[] | null = null;
-let cachedLocationsAt = 0;
+const locationCache = new Map<
+  TenantId,
+  { locations: SquareLocation[]; at: number }
+>();
 const LOCATION_CACHE_MS = 5 * 60 * 1000;
 
-export async function listActiveLocations(): Promise<SquareLocation[]> {
+export async function listActiveLocations(
+  tenant: TenantId,
+): Promise<SquareLocation[]> {
   const now = Date.now();
-  if (cachedLocations && now - cachedLocationsAt < LOCATION_CACHE_MS) {
-    return cachedLocations;
+  const cached = locationCache.get(tenant);
+  if (cached && now - cached.at < LOCATION_CACHE_MS) {
+    return cached.locations;
   }
 
-  const data = await squareFetch<ListLocationsResponse>("/v2/locations", {
+  const data = await squareFetch<ListLocationsResponse>(tenant, "/v2/locations", {
     method: "GET",
   });
 
@@ -105,18 +111,18 @@ export async function listActiveLocations(): Promise<SquareLocation[]> {
     (loc) => loc.status === "ACTIVE",
   );
 
-  cachedLocations = active;
-  cachedLocationsAt = now;
+  locationCache.set(tenant, { locations: active, at: now });
   return active;
 }
 
-export function clearLocationCache(): void {
-  cachedLocations = null;
-  cachedLocationsAt = 0;
+export function clearLocationCache(tenant: TenantId): void {
+  locationCache.delete(tenant);
 }
 
-export async function getActiveLocationIds(): Promise<string[]> {
-  const locations = await listActiveLocations();
+export async function getActiveLocationIds(
+  tenant: TenantId,
+): Promise<string[]> {
+  const locations = await listActiveLocations(tenant);
   if (locations.length === 0) {
     throw new Error("No active Square locations found for this account.");
   }
@@ -137,8 +143,10 @@ function startOfTodayIso(): string {
   return start.toISOString();
 }
 
-export async function getTodayOrders(): Promise<SquareOrder[]> {
-  const locationIds = await getActiveLocationIds();
+export async function getTodayOrders(
+  tenant: TenantId,
+): Promise<SquareOrder[]> {
+  const locationIds = await getActiveLocationIds(tenant);
   const startAt = startOfTodayIso();
   const endAt = new Date().toISOString();
 
@@ -147,6 +155,7 @@ export async function getTodayOrders(): Promise<SquareOrder[]> {
 
   do {
     const data: SearchOrdersResponse = await squareFetch<SearchOrdersResponse>(
+      tenant,
       "/v2/orders/search",
       {
         method: "POST",

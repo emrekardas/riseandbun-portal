@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { tenantBase } from "@/lib/tenant-client";
 
 export type ConnectionStatus = {
   connected: boolean;
@@ -27,7 +28,9 @@ export function useConnectionStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/square/status", { cache: "no-store" });
+      const res = await fetch(`${tenantBase()}/api/square/status`, {
+        cache: "no-store",
+      });
       const data = (await res.json()) as ConnectionStatus;
       if (!aliveRef.current) return;
       setStatus(data);

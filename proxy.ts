@@ -4,8 +4,16 @@ import {
   SESSION_COOKIE_NAME,
   verifySessionToken,
 } from "@/lib/auth/session";
+import { isTenantId, TENANT_HEADER, type TenantId } from "@/lib/tenants";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+/**
+ * Root is the single login screen — the password itself decides which
+ * tenant you land on (see app/api/auth/login). Tenant areas live under
+ * /<tenant> and are path-scoped: the session cookie is set with
+ * Path=/<tenant> and its signature is bound to the tenant, so a Margate
+ * session can never open Soho.
+ */
+const PUBLIC_PATHS = new Set(["/", "/login"]);
 const PUBLIC_API_PATHS = new Set([
   "/api/auth/login",
   "/api/health",
@@ -67,17 +75,65 @@ function isInternalHost(host: string): boolean {
   );
 }
 
+/** Forward /<tenant>/<rest> to the internal route with the tenant header. */
+function rewriteForTenant(
+  request: NextRequest,
+  tenant: TenantId,
+  innerPath: string,
+): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(TENANT_HEADER, tenant);
+
+  const url = request.nextUrl.clone();
+  // The KDS board itself lives at /board; /<tenant> maps onto it.
+  url.pathname = innerPath === "" || innerPath === "/" ? "/board" : innerPath;
+  return withRobots(
+    NextResponse.rewrite(url, { request: { headers: requestHeaders } }),
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const firstSegment = pathname.split("/")[1];
 
-  if (PUBLIC_PATHS.has(pathname) || PUBLIC_API_PATHS.has(pathname)) {
-    return withRobots(NextResponse.next());
+  // ── Tenant area: /<tenant>/… ──────────────────────────────────────────
+  if (isTenantId(firstSegment)) {
+    const tenant = firstSegment;
+    const innerPath = pathname.slice(tenant.length + 1); // "" or "/…"
+
+    // Legacy tenant login URL → root login, which routes by password.
+    if (innerPath === "/login") {
+      const loginUrl = new URL("/", publicOriginFromRequest(request));
+      loginUrl.searchParams.set("next", `/${tenant}`);
+      return withRobots(NextResponse.redirect(loginUrl));
+    }
+
+    // A browser may carry multiple same-named cookies (legacy Path=/ plus
+    // the tenant-scoped one) — accept the request if ANY of them is a valid
+    // session for THIS tenant.
+    const tokens = request.cookies
+      .getAll(SESSION_COOKIE_NAME)
+      .map((c) => c.value);
+    const isAuthenticated = tokens.some((t) =>
+      verifySessionToken(tenant, t),
+    );
+
+    if (!isAuthenticated) {
+      if (innerPath.startsWith("/api/")) {
+        return withRobots(
+          NextResponse.json({ error: "unauthorized" }, { status: 401 }),
+        );
+      }
+      const loginUrl = new URL("/", publicOriginFromRequest(request));
+      loginUrl.searchParams.set("next", `/${tenant}`);
+      return withRobots(NextResponse.redirect(loginUrl));
+    }
+
+    return rewriteForTenant(request, tenant, innerPath);
   }
 
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const isAuthenticated = verifySessionToken(token);
-
-  if (isAuthenticated) {
+  // ── Bare paths ─────────────────────────────────────────────────────────
+  if (PUBLIC_PATHS.has(pathname) || PUBLIC_API_PATHS.has(pathname)) {
     return withRobots(NextResponse.next());
   }
 
@@ -87,10 +143,8 @@ export function proxy(request: NextRequest) {
     );
   }
 
-  const loginUrl = new URL("/login", publicOriginFromRequest(request));
-  if (pathname !== "/") {
-    loginUrl.searchParams.set("next", pathname);
-  }
+  // Anything else outside a tenant prefix → root login.
+  const loginUrl = new URL("/", publicOriginFromRequest(request));
   return withRobots(NextResponse.redirect(loginUrl));
 }
 

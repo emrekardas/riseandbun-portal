@@ -5,17 +5,23 @@ import { writeToken } from "@/lib/square/token-store";
 import { clearLocationCache, listActiveLocations } from "@/lib/square/orders";
 import { getMerchantInfo } from "@/lib/square/merchant";
 import { publicUrl } from "@/lib/http/origin";
+import { tenantFromRequest, type TenantId } from "@/lib/tenants";
 
 const STATE_COOKIE = "rb_oauth_state";
 
-function failureRedirect(req: NextRequest, reason: string): NextResponse {
-  const url = publicUrl(req, "/");
+function failureRedirect(
+  req: NextRequest,
+  tenant: TenantId,
+  reason: string,
+): NextResponse {
+  const url = publicUrl(req, `/${tenant}`);
   url.searchParams.set("square", "error");
   url.searchParams.set("reason", reason);
   return NextResponse.redirect(url);
 }
 
 export async function GET(request: NextRequest) {
+  const tenant = tenantFromRequest(request);
   const url = request.nextUrl;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -24,24 +30,24 @@ export async function GET(request: NextRequest) {
 
   if (sellerError) {
     console.error(
-      `[Square OAuth] seller denied or returned an error: ${sellerError}`,
+      `[Square OAuth] ${tenant}: seller denied or returned an error: ${sellerError}`,
     );
-    return failureRedirect(request, sellerError);
+    return failureRedirect(request, tenant, sellerError);
   }
 
   const expectedState = request.cookies.get(STATE_COOKIE)?.value;
   if (!state || !expectedState || state !== expectedState) {
-    console.error("[Square OAuth] invalid state parameter");
-    return failureRedirect(request, "invalid_state");
+    console.error(`[Square OAuth] ${tenant}: invalid state parameter`);
+    return failureRedirect(request, tenant, "invalid_state");
   }
   if (responseType !== "code" || !code) {
-    console.error("[Square OAuth] missing authorization code");
-    return failureRedirect(request, "missing_code");
+    console.error(`[Square OAuth] ${tenant}: missing authorization code`);
+    return failureRedirect(request, tenant, "missing_code");
   }
 
   try {
-    const tokenResponse = await exchangeCodeForToken(code);
-    await writeToken({
+    const tokenResponse = await exchangeCodeForToken(tenant, code);
+    await writeToken(tenant, {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token,
       expiresAt: tokenResponse.expires_at,
@@ -49,14 +55,14 @@ export async function GET(request: NextRequest) {
       obtainedAt: new Date().toISOString(),
     });
 
-    clearLocationCache();
+    clearLocationCache(tenant);
 
     const [merchant, locations] = await Promise.all([
-      getMerchantInfo(),
-      listActiveLocations(),
+      getMerchantInfo(tenant),
+      listActiveLocations(tenant),
     ]);
 
-    console.log("\n========== Square Connected ==========");
+    console.log(`\n========== Square Connected (${tenant}) ==========`);
     console.log(`Merchant ID:   ${tokenResponse.merchant_id}`);
     console.log(`Business name: ${merchant?.business_name ?? "(unknown)"}`);
     console.log(`Country:       ${merchant?.country ?? "—"}`);
@@ -69,17 +75,17 @@ export async function GET(request: NextRequest) {
     console.log("======================================\n");
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("[Square OAuth] token exchange failed:", message);
-    return failureRedirect(request, "exchange_failed");
+    console.error(`[Square OAuth] ${tenant}: token exchange failed:`, message);
+    return failureRedirect(request, tenant, "exchange_failed");
   }
 
-  const successUrl = publicUrl(request, "/");
+  const successUrl = publicUrl(request, `/${tenant}`);
   successUrl.searchParams.set("square", "connected");
   const response = NextResponse.redirect(successUrl);
   response.cookies.set({
     name: STATE_COOKIE,
     value: "",
-    path: "/",
+    path: `/${tenant}`,
     maxAge: 0,
   });
   return response;

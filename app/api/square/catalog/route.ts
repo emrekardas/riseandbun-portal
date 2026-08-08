@@ -1,19 +1,22 @@
 import { NextResponse } from "next/server";
 import { listCatalog } from "@/lib/square/catalog";
 import { SquareApiError, SquareNotConnectedError } from "@/lib/square/client";
+import { tenantFromRequest } from "@/lib/tenants";
 
 function money(m?: { amount?: number; currency?: string }): string {
   if (!m || m.amount === undefined) return "—";
   return `${(m.amount / 100).toFixed(2)} ${m.currency ?? ""}`.trim();
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  const tenant = tenantFromRequest(request);
+
   try {
-    const objects = await listCatalog(["ITEM", "CATEGORY", "MODIFIER_LIST"]);
+    const objects = await listCatalog(tenant, ["ITEM", "CATEGORY", "MODIFIER_LIST"]);
 
     const categories = objects.filter((o) => o.type === "CATEGORY");
     const items = objects.filter((o) => o.type === "ITEM");

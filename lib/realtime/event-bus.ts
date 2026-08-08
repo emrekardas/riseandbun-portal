@@ -2,6 +2,7 @@ import "server-only";
 import { EventEmitter } from "node:events";
 import type { SquareOrder } from "@/lib/square/orders";
 import type { OrderStatus, PublicStats, StatusMap } from "@/lib/orders/types";
+import type { TenantId } from "@/lib/tenants";
 
 /**
  * Realtime event bus for KDS updates.
@@ -29,8 +30,8 @@ export type OrderEvent =
 type Listener = (event: OrderEvent) => void;
 
 declare global {
-   
-  var __kdsEventBus: KdsEventBus | undefined;
+
+  var __kdsEventBuses: Map<TenantId, KdsEventBus> | undefined;
 }
 
 class KdsEventBus {
@@ -57,9 +58,14 @@ class KdsEventBus {
   }
 }
 
-export function getEventBus(): KdsEventBus {
-  if (!globalThis.__kdsEventBus) {
-    globalThis.__kdsEventBus = new KdsEventBus();
+export function getEventBus(tenant: TenantId): KdsEventBus {
+  if (!globalThis.__kdsEventBuses) {
+    globalThis.__kdsEventBuses = new Map();
   }
-  return globalThis.__kdsEventBus;
+  let bus = globalThis.__kdsEventBuses.get(tenant);
+  if (!bus) {
+    bus = new KdsEventBus();
+    globalThis.__kdsEventBuses.set(tenant, bus);
+  }
+  return bus;
 }

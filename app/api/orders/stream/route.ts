@@ -3,6 +3,7 @@ import { getEventBus, type OrderEvent } from "@/lib/realtime/event-bus";
 import { ensureCacheStarted } from "@/lib/realtime/orders-cache";
 import { getStatusMap } from "@/lib/orders/server-status-store";
 import { getPublicStats } from "@/lib/orders/stats-store";
+import { tenantFromRequest } from "@/lib/tenants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +13,8 @@ function sseFormat(event: OrderEvent): string {
 }
 
 export async function GET(request: Request) {
-  const cache = ensureCacheStarted();
+  const tenant = tenantFromRequest(request);
+  const cache = ensureCacheStarted(tenant);
 
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
@@ -35,8 +37,8 @@ export async function GET(request: Request) {
           sseFormat({
             type: "snapshot",
             orders: cache.snapshot(),
-            statuses: await getStatusMap(),
-            stats: await getPublicStats(),
+            statuses: await getStatusMap(tenant),
+            stats: await getPublicStats(tenant),
             at: status.lastFetchedAt ?? new Date().toISOString(),
           }),
         );
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
         void cache.refreshNow();
       }
 
-      unsubscribe = getEventBus().subscribe((event) => {
+      unsubscribe = getEventBus(tenant).subscribe((event) => {
         safeEnqueue(sseFormat(event));
       });
 

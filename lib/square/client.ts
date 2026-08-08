@@ -6,6 +6,7 @@ import {
   writeToken,
   type SquareToken,
 } from "./token-store";
+import type { TenantId } from "@/lib/tenants";
 
 export class SquareApiError extends Error {
   status: number;
@@ -21,22 +22,23 @@ export class SquareApiError extends Error {
 
 export class SquareNotConnectedError extends Error {
   constructor() {
-    super("Square is not connected. Visit /api/square/oauth/start to link an account.");
+    super("Square is not connected. Use Connect to Square from the portal header.");
     this.name = "SquareNotConnectedError";
   }
 }
 
-let inflightRefresh: Promise<SquareToken> | null = null;
+const inflightRefresh = new Map<TenantId, Promise<SquareToken>>();
 
-async function ensureFreshToken(): Promise<SquareToken> {
-  const token = await readToken();
+async function ensureFreshToken(tenant: TenantId): Promise<SquareToken> {
+  const token = await readToken(tenant);
   if (!token) throw new SquareNotConnectedError();
   if (isTokenFresh(token)) return token;
 
-  if (!inflightRefresh) {
-    inflightRefresh = (async () => {
+  let inflight = inflightRefresh.get(tenant);
+  if (!inflight) {
+    inflight = (async () => {
       try {
-        const refreshed = await refreshAccessToken(token.refreshToken);
+        const refreshed = await refreshAccessToken(tenant, token.refreshToken);
         const next: SquareToken = {
           accessToken: refreshed.access_token,
           refreshToken: refreshed.refresh_token,
@@ -45,14 +47,15 @@ async function ensureFreshToken(): Promise<SquareToken> {
           scopes: token.scopes,
           obtainedAt: new Date().toISOString(),
         };
-        await writeToken(next);
+        await writeToken(tenant, next);
         return next;
       } finally {
-        inflightRefresh = null;
+        inflightRefresh.delete(tenant);
       }
     })();
+    inflightRefresh.set(tenant, inflight);
   }
-  return inflightRefresh;
+  return inflight;
 }
 
 type SquareRequestInit = Omit<RequestInit, "body" | "headers"> & {
@@ -61,11 +64,12 @@ type SquareRequestInit = Omit<RequestInit, "body" | "headers"> & {
 };
 
 export async function squareFetch<T>(
+  tenant: TenantId,
   path: string,
   init: SquareRequestInit = {},
 ): Promise<T> {
-  const cfg = getOAuthConfig();
-  const token = await ensureFreshToken();
+  const cfg = getOAuthConfig(tenant);
+  const token = await ensureFreshToken(tenant);
   const { body, headers, ...rest } = init;
 
   const response = await fetch(`${cfg.baseUrl}${path}`, {

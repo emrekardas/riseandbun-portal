@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { getTodayOrders } from "@/lib/square/orders";
 import { SquareApiError, SquareNotConnectedError } from "@/lib/square/client";
-import { markFoodLineItems } from "@/lib/square/food-items";
+import { markFoodLineItems, orderHasNonFoodItem } from "@/lib/square/food-items";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
 import { ensureCacheStarted } from "@/lib/realtime/orders-cache";
+import { tenantFromRequest } from "@/lib/tenants";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const tenant = tenantFromRequest(request);
+
   // Always try to read from cache first (zero-latency, in-memory).
   // Cache is kept warm by the background poller and the SSE stream.
-  const cache = ensureCacheStarted();
+  const cache = ensureCacheStarted(tenant);
   const cacheStatus = cache.status();
 
   if (cacheStatus.ready) {
@@ -37,7 +40,8 @@ export async function GET() {
   }
 
   try {
-    const orders = await markFoodLineItems(await getTodayOrders());
+    const orders = (await markFoodLineItems(tenant, await getTodayOrders(tenant)))
+      .filter(orderHasNonFoodItem);
     return NextResponse.json(
       {
         orders,

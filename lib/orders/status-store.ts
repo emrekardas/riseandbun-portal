@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { tenantBase } from "@/lib/tenant-client";
 import type { OrderStatus, StatusMap } from "./types";
 
 /**
@@ -76,7 +77,7 @@ export function setOrderStatus(
   applyStatusEvent(orderId, status, new Date().toISOString());
   // `createdAt` lets the server compute prep time for daily stats without
   // depending on a warm orders cache (avoids a cold-start race).
-  void fetch("/api/orders/status", {
+  void fetch(`${tenantBase()}/api/orders/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ orderId, status, createdAt }),
@@ -88,7 +89,7 @@ export function setOrderStatus(
 
 export function clearAllStatuses(): void {
   applyStatusReset();
-  void fetch("/api/orders/status", {
+  void fetch(`${tenantBase()}/api/orders/status`, {
     method: "DELETE",
     cache: "no-store",
   }).catch(() => {});

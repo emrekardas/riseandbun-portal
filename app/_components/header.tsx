@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { LogOut, PlugZap, X } from "lucide-react";
 import { useConnectionStatus } from "@/lib/square/use-connection-status";
+import { tenantBase } from "@/lib/tenant-client";
 import { MockToolbar } from "./mock-toolbar";
 import { ServiceBar } from "./service-bar";
 
@@ -27,19 +28,21 @@ export function Header() {
   }, []);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
+    await fetch(`${tenantBase()}/api/auth/logout`, { method: "POST" });
+    router.replace("/");
     router.refresh();
   }
 
   async function handleDisconnect() {
     if (!confirm("Are you sure you want to disconnect from Square?")) return;
-    await fetch("/api/square/oauth/disconnect", { method: "POST" });
+    await fetch(`${tenantBase()}/api/square/oauth/disconnect`, {
+      method: "POST",
+    });
     await refresh();
   }
 
   function handleConnect() {
-    window.location.href = "/api/square/oauth/start";
+    window.location.href = `${tenantBase()}/api/square/oauth/start`;
   }
 
   return (

@@ -4,18 +4,19 @@ import path from "node:path";
 import type { PublicStats } from "./types";
 import { LATE_MIN } from "./metrics";
 import { getEventBus } from "@/lib/realtime/event-bus";
+import type { TenantId } from "@/lib/tenants";
 
 /**
  * Server-authoritative daily service stats (drinks served, late count, prep
- * time). Same no-DB pattern as the status store: a tiny JSON file on the
- * persistent volume, mirrored in memory, broadcast over SSE.
+ * time). Same no-DB pattern as the status store: a tiny JSON file per tenant
+ * on the persistent volume, mirrored in memory, broadcast over SSE.
  *
  * Counters are keyed to a London calendar day and roll over automatically
  * (belt-and-suspenders alongside the 18:00 reset). `servedIds` makes
  * `recordServed` idempotent so "undo → re-ready" never double-counts.
  */
 
-const FILENAME = "stats.json";
+const LEGACY_FILENAME = "stats.json";
 const LATE_MS = LATE_MIN * 60_000;
 
 type DailyStats = {
@@ -26,11 +27,14 @@ type DailyStats = {
   totalPrepMs: number;
 };
 
-function getStoragePath(): string {
-  const dataDir = process.env.DATA_DIR
+function getDataDir(): string {
+  return process.env.DATA_DIR
     ? path.resolve(process.env.DATA_DIR)
     : path.resolve(process.cwd(), ".data");
-  return path.join(dataDir, FILENAME);
+}
+
+function getStoragePath(tenant: TenantId): string {
+  return path.join(getDataDir(), `stats-${tenant}.json`);
 }
 
 function londonDate(): string {
@@ -61,7 +65,7 @@ function toPublic(s: DailyStats): PublicStats {
 
 declare global {
 
-  var __kdsStatsStore: StatsStore | undefined;
+  var __kdsStatsStores: Map<TenantId, StatsStore> | undefined;
 }
 
 class StatsStore {
@@ -69,22 +73,47 @@ class StatsStore {
   private loaded = false;
   private writeQueue: Promise<void> = Promise.resolve();
 
+  constructor(private readonly tenant: TenantId) {}
+
   async load(): Promise<void> {
     if (!this.loaded) {
       try {
-        const raw = await fs.readFile(getStoragePath(), "utf8");
+        const raw = await fs.readFile(getStoragePath(this.tenant), "utf8");
         const parsed = JSON.parse(raw) as DailyStats;
         if (parsed && typeof parsed === "object" && parsed.date) {
           this.data = { ...emptyStats(), ...parsed };
         }
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          await this.migrateLegacy();
+        } else {
           console.error("[stats-store] load failed:", err);
         }
       }
       this.loaded = true;
     }
     this.rollover();
+  }
+
+  /** Adopt the pre-multi-tenant single stats file for Margate. */
+  private async migrateLegacy(): Promise<void> {
+    if (this.tenant !== "margate") return;
+    const legacyPath = path.join(getDataDir(), LEGACY_FILENAME);
+    try {
+      const raw = await fs.readFile(legacyPath, "utf8");
+      const parsed = JSON.parse(raw) as DailyStats;
+      if (parsed && typeof parsed === "object" && parsed.date) {
+        this.data = { ...emptyStats(), ...parsed };
+      }
+      await fs.mkdir(getDataDir(), { recursive: true });
+      await fs.writeFile(getStoragePath(this.tenant), raw, "utf8");
+      await fs.unlink(legacyPath);
+      console.log("[stats-store] migrated legacy stats.json → margate");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("[stats-store] legacy migration failed:", err);
+      }
+    }
   }
 
   /** Reset counters when the London day changes. */
@@ -116,7 +145,7 @@ class StatsStore {
   }
 
   private broadcast(): void {
-    getEventBus().publish({
+    getEventBus(this.tenant).publish({
       type: "stats",
       stats: toPublic(this.data),
       at: new Date().toISOString(),
@@ -127,7 +156,7 @@ class StatsStore {
     const serialized = JSON.stringify(this.data);
     this.writeQueue = this.writeQueue
       .then(async () => {
-        const filePath = getStoragePath();
+        const filePath = getStoragePath(this.tenant);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, serialized, "utf8");
       })
@@ -137,30 +166,36 @@ class StatsStore {
   }
 }
 
-function store(): StatsStore {
-  if (!globalThis.__kdsStatsStore) {
-    globalThis.__kdsStatsStore = new StatsStore();
+function store(tenant: TenantId): StatsStore {
+  if (!globalThis.__kdsStatsStores) {
+    globalThis.__kdsStatsStores = new Map();
   }
-  return globalThis.__kdsStatsStore;
+  let s = globalThis.__kdsStatsStores.get(tenant);
+  if (!s) {
+    s = new StatsStore(tenant);
+    globalThis.__kdsStatsStores.set(tenant, s);
+  }
+  return s;
 }
 
 export async function recordServed(
+  tenant: TenantId,
   orderId: string,
   prepMs: number,
 ): Promise<void> {
-  const s = store();
+  const s = store(tenant);
   await s.load();
   s.recordServed(orderId, prepMs);
 }
 
-export async function getPublicStats(): Promise<PublicStats> {
-  const s = store();
+export async function getPublicStats(tenant: TenantId): Promise<PublicStats> {
+  const s = store(tenant);
   await s.load();
   return s.publicStats();
 }
 
-export async function clearStats(): Promise<void> {
-  const s = store();
+export async function clearStats(tenant: TenantId): Promise<void> {
+  const s = store(tenant);
   await s.load();
   s.clear();
 }

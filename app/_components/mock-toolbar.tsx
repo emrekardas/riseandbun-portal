@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, RefreshCcw, Sparkles } from "lucide-react";
 import { useConnectionStatus } from "@/lib/square/use-connection-status";
 import { clearAllStatuses } from "@/lib/orders/status-store";
+import { tenantBase } from "@/lib/tenant-client";
 
 export const MOCK_REFRESH_EVENT = "mock:orders-changed";
 
@@ -17,7 +18,7 @@ export function MockToolbar() {
     if (busy) return;
     setBusy("add");
     try {
-      await fetch("/api/mock/add", { method: "POST" });
+      await fetch(`${tenantBase()}/api/mock/add`, { method: "POST" });
       window.dispatchEvent(new Event(MOCK_REFRESH_EVENT));
     } finally {
       setBusy(null);
@@ -29,7 +30,7 @@ export function MockToolbar() {
     if (!confirm("Reset demo orders to initial seed?")) return;
     setBusy("reset");
     try {
-      await fetch("/api/mock/reseed", { method: "POST" });
+      await fetch(`${tenantBase()}/api/mock/reseed`, { method: "POST" });
       clearAllStatuses();
       window.dispatchEvent(new Event(MOCK_REFRESH_EVENT));
     } finally {

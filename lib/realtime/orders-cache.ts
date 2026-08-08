@@ -1,18 +1,20 @@
 import "server-only";
 import { getTodayOrders, type SquareOrder } from "@/lib/square/orders";
 import { SquareNotConnectedError } from "@/lib/square/client";
-import { markFoodLineItems } from "@/lib/square/food-items";
+import { markFoodLineItems, orderHasNonFoodItem } from "@/lib/square/food-items";
 import { isMockMode } from "@/lib/mock/config";
 import { getMockOrders } from "@/lib/mock/orders-store";
 import { getStatusMap, pruneStatuses } from "@/lib/orders/server-status-store";
 import { getPublicStats } from "@/lib/orders/stats-store";
 import { ensureDailyResetScheduled } from "@/lib/orders/daily-reset";
 import { getEventBus } from "./event-bus";
+import type { TenantId } from "@/lib/tenants";
 
 /**
- * In-memory cache of today's orders, unfiltered — whatever Square returns
- * is what the KDS shows. The cache is refreshed by a single background
- * poller that runs in the Node.js server process.
+ * In-memory cache of a tenant's today's orders, unfiltered — whatever Square
+ * returns is what the KDS shows (except pure-food orders, see below). The
+ * cache is refreshed by a single background poller that runs in the Node.js
+ * server process. Each tenant gets its own cache + poller.
  *
  * SSE clients consume from this cache + the event bus:
  *   1. On connect → receive a `snapshot` event with the full cache
@@ -26,8 +28,8 @@ const POLL_INTERVAL_MS = 2_000;
 const PING_INTERVAL_MS = 25_000; // SSE keep-alive (most proxies idle-timeout at 30-60s)
 
 declare global {
-   
-  var __kdsCache: OrdersCache | undefined;
+
+  var __kdsCaches: Map<TenantId, OrdersCache> | undefined;
 }
 
 function orderFingerprint(order: SquareOrder): string {
@@ -60,6 +62,8 @@ class OrdersCache {
   private ready = false;
   private warnedNotConnected = false;
 
+  constructor(private readonly tenant: TenantId) {}
+
   start(): void {
     if (this.timer) return;
     void this.tick();
@@ -67,7 +71,10 @@ class OrdersCache {
       void this.tick();
     }, POLL_INTERVAL_MS);
     this.pingTimer = setInterval(() => {
-      getEventBus().publish({ type: "ping", at: new Date().toISOString() });
+      getEventBus(this.tenant).publish({
+        type: "ping",
+        at: new Date().toISOString(),
+      });
     }, PING_INTERVAL_MS);
     if (typeof this.timer.unref === "function") this.timer.unref();
     if (typeof this.pingTimer.unref === "function") this.pingTimer.unref();
@@ -112,11 +119,14 @@ class OrdersCache {
 
   private async runFetch(): Promise<void> {
     try {
+      // Pure-food orders never reach the bar — but only when every line
+      // item is *confirmed* food via the live catalog (safe default: show).
       const fresh = isMockMode()
         ? getMockOrders()
-        : await markFoodLineItems(await getTodayOrders());
+        : (await markFoodLineItems(this.tenant, await getTodayOrders(this.tenant)))
+            .filter(orderHasNonFoodItem);
 
-      const bus = getEventBus();
+      const bus = getEventBus(this.tenant);
       const seen = new Set<string>();
       const upserts: SquareOrder[] = [];
 
@@ -142,7 +152,7 @@ class OrdersCache {
 
       // Keep the status file pruned to currently-active orders so it never
       // grows unbounded (belt-and-suspenders alongside the 18:00 reset).
-      await pruneStatuses(seen);
+      await pruneStatuses(this.tenant, seen);
 
       this.lastFetchedAt = new Date().toISOString();
       this.lastError = null;
@@ -153,8 +163,8 @@ class OrdersCache {
         bus.publish({
           type: "snapshot",
           orders: this.snapshot(),
-          statuses: await getStatusMap(),
-          stats: await getPublicStats(),
+          statuses: await getStatusMap(this.tenant),
+          stats: await getPublicStats(this.tenant),
           at: this.lastFetchedAt,
         });
       } else {
@@ -180,7 +190,7 @@ class OrdersCache {
       if (error instanceof SquareNotConnectedError) {
         if (!this.warnedNotConnected) {
           console.warn(
-            "[orders-cache] Square not connected — poller idling. Connect at /api/square/oauth/start.",
+            `[orders-cache] ${this.tenant}: Square not connected — poller idling.`,
           );
           this.warnedNotConnected = true;
         }
@@ -188,24 +198,37 @@ class OrdersCache {
       }
 
       this.warnedNotConnected = false;
-      console.error("[orders-cache] poll failed:", this.lastError);
+      console.error(`[orders-cache] ${this.tenant} poll failed:`, this.lastError);
     }
   }
 }
 
-export function getOrdersCache(): OrdersCache {
-  if (!globalThis.__kdsCache) {
-    globalThis.__kdsCache = new OrdersCache();
+export function getOrdersCache(tenant: TenantId): OrdersCache {
+  if (!globalThis.__kdsCaches) {
+    globalThis.__kdsCaches = new Map();
   }
-  return globalThis.__kdsCache;
+  let cache = globalThis.__kdsCaches.get(tenant);
+  if (!cache) {
+    cache = new OrdersCache(tenant);
+    globalThis.__kdsCaches.set(tenant, cache);
+  }
+  return cache;
 }
 
 /**
  * Boot the cache lazily on first access. Safe to call from any request.
  */
-export function ensureCacheStarted(): OrdersCache {
-  const cache = getOrdersCache();
+export function ensureCacheStarted(tenant: TenantId): OrdersCache {
+  const cache = getOrdersCache(tenant);
   cache.start();
   ensureDailyResetScheduled();
   return cache;
+}
+
+/** Refresh every tenant that currently has a running cache (used by the
+ *  shared Square webhook, which doesn't know which merchant fired). */
+export function refreshAllTenantCaches(): void {
+  for (const cache of globalThis.__kdsCaches?.values() ?? []) {
+    void cache.refreshNow();
+  }
 }

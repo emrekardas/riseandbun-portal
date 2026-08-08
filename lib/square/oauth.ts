@@ -1,4 +1,5 @@
 import "server-only";
+import type { TenantId } from "@/lib/tenants";
 
 const SQUARE_BASE_URLS = {
   production: "https://connect.squareup.com",
@@ -10,7 +11,6 @@ export type SquareEnvironment = keyof typeof SQUARE_BASE_URLS;
 export type OAuthConfig = {
   applicationId: string;
   applicationSecret: string;
-  redirectUri: string;
   baseUrl: string;
   apiVersion: string;
   environment: SquareEnvironment;
@@ -24,10 +24,24 @@ export const OAUTH_SCOPES = [
   "ITEMS_READ",
 ] as const;
 
-export function getOAuthConfig(): OAuthConfig {
-  const applicationId = process.env.SQUARE_APPLICATION_ID;
-  const applicationSecret = process.env.SQUARE_APPLICATION_SECRET;
-  const redirectUri = process.env.SQUARE_OAUTH_REDIRECT_URI;
+/**
+ * One Square OAuth app can be authorised by many merchants, so the shared
+ * SQUARE_APPLICATION_ID / SECRET cover every tenant. Per-tenant overrides
+ * (SQUARE_APPLICATION_ID_SOHO etc.) exist for the case where a shop insists
+ * on its own developer app.
+ *
+ * The redirect URI is intentionally NOT read from env here anymore — it is
+ * built per tenant from the request origin (`/<tenant>/api/square/oauth/callback`)
+ * by the OAuth start route, so each shop's callback stays under its prefix.
+ */
+export function getOAuthConfig(tenant: TenantId): OAuthConfig {
+  const suffix = tenant.toUpperCase();
+  const applicationId =
+    process.env[`SQUARE_APPLICATION_ID_${suffix}`] ??
+    process.env.SQUARE_APPLICATION_ID;
+  const applicationSecret =
+    process.env[`SQUARE_APPLICATION_SECRET_${suffix}`] ??
+    process.env.SQUARE_APPLICATION_SECRET;
   const apiVersion = process.env.SQUARE_API_VERSION ?? "2026-01-22";
   const environment = (process.env.SQUARE_ENVIRONMENT ??
     "production") as SquareEnvironment;
@@ -35,7 +49,6 @@ export function getOAuthConfig(): OAuthConfig {
   if (!applicationId) throw new Error("SQUARE_APPLICATION_ID is missing.");
   if (!applicationSecret)
     throw new Error("SQUARE_APPLICATION_SECRET is missing.");
-  if (!redirectUri) throw new Error("SQUARE_OAUTH_REDIRECT_URI is missing.");
   if (!(environment in SQUARE_BASE_URLS)) {
     throw new Error(`Invalid SQUARE_ENVIRONMENT: ${environment}`);
   }
@@ -43,20 +56,24 @@ export function getOAuthConfig(): OAuthConfig {
   return {
     applicationId,
     applicationSecret,
-    redirectUri,
     baseUrl: SQUARE_BASE_URLS[environment],
     apiVersion,
     environment,
   };
 }
 
-export function buildAuthorizeUrl(state: string): string {
-  const cfg = getOAuthConfig();
+export function buildAuthorizeUrl(
+  tenant: TenantId,
+  redirectUri: string,
+  state: string,
+): string {
+  const cfg = getOAuthConfig(tenant);
   const params = new URLSearchParams({
     client_id: cfg.applicationId,
     scope: OAUTH_SCOPES.join(" "),
     session: "false",
     state,
+    redirect_uri: redirectUri,
   });
   return `${cfg.baseUrl}/oauth2/authorize?${params.toString()}`;
 }
@@ -71,9 +88,10 @@ type ObtainTokenResponse = {
 };
 
 export async function exchangeCodeForToken(
+  tenant: TenantId,
   code: string,
 ): Promise<ObtainTokenResponse> {
-  const cfg = getOAuthConfig();
+  const cfg = getOAuthConfig(tenant);
   const res = await fetch(`${cfg.baseUrl}/oauth2/token`, {
     method: "POST",
     headers: {
@@ -102,9 +120,10 @@ export async function exchangeCodeForToken(
 }
 
 export async function refreshAccessToken(
+  tenant: TenantId,
   refreshToken: string,
 ): Promise<ObtainTokenResponse> {
-  const cfg = getOAuthConfig();
+  const cfg = getOAuthConfig(tenant);
   const res = await fetch(`${cfg.baseUrl}/oauth2/token`, {
     method: "POST",
     headers: {

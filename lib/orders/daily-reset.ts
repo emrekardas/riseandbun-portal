@@ -1,6 +1,7 @@
 import "server-only";
 import { clearAllStatuses } from "./server-status-store";
 import { clearStats } from "./stats-store";
+import { TENANT_IDS } from "@/lib/tenants";
 
 /**
  * In-process daily reset of order statuses at 18:00 Europe/London (cafe close).
@@ -39,9 +40,14 @@ export function ensureDailyResetScheduled(): void {
     const delay = msUntilNextReset();
     const timer = setTimeout(async () => {
       try {
-        await Promise.all([clearAllStatuses(), clearStats()]);
+        await Promise.all(
+          TENANT_IDS.flatMap((tenant) => [
+            clearAllStatuses(tenant),
+            clearStats(tenant),
+          ]),
+        );
         console.log(
-          "[daily-reset] order statuses + stats cleared (18:00 Europe/London)",
+          "[daily-reset] order statuses + stats cleared for all tenants (18:00 Europe/London)",
         );
       } catch (err) {
         console.error("[daily-reset] failed:", err);

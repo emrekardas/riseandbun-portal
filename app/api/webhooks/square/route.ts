@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ensureCacheStarted } from "@/lib/realtime/orders-cache";
+import { refreshAllTenantCaches } from "@/lib/realtime/orders-cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -119,10 +119,11 @@ export async function POST(request: Request) {
   const isRelevant = RELEVANT_PREFIXES.some((p) => type.startsWith(p));
 
   if (isRelevant && isFresh) {
-    const cache = ensureCacheStarted();
+    // The webhook subscription is app-level, not merchant-level, so an event
+    // can belong to any connected tenant — refresh all running caches.
     // Don't await — respond fast so Square doesn't retry. The refresh
     // will broadcast via the event bus when it completes (~hundreds of ms).
-    void cache.refreshNow();
+    refreshAllTenantCaches();
   }
 
   return NextResponse.json({

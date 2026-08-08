@@ -4,8 +4,11 @@ import { getMerchantInfo } from "@/lib/square/merchant";
 import { listActiveLocations } from "@/lib/square/orders";
 import { SquareApiError } from "@/lib/square/client";
 import { isMockMode } from "@/lib/mock/config";
+import { tenantFromRequest } from "@/lib/tenants";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const tenant = tenantFromRequest(request);
+
   if (isMockMode()) {
     return NextResponse.json(
       {
@@ -27,7 +30,7 @@ export async function GET() {
     );
   }
 
-  const token = await readToken();
+  const token = await readToken(tenant);
   if (!token) {
     return NextResponse.json(
       { connected: false, reason: "not_connected" },
@@ -37,8 +40,8 @@ export async function GET() {
 
   try {
     const [merchant, locations] = await Promise.all([
-      getMerchantInfo(),
-      listActiveLocations(),
+      getMerchantInfo(tenant),
+      listActiveLocations(tenant),
     ]);
     return NextResponse.json(
       {

@@ -3,32 +3,36 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { OrderStatus, StatusEntry, StatusMap } from "./types";
 import { getEventBus } from "@/lib/realtime/event-bus";
+import type { TenantId } from "@/lib/tenants";
 
 /**
  * Server-authoritative store for order statuses (pending / ready / done…).
  *
  * Lives in-memory in the single Node.js server process and is mirrored to a
- * plain JSON file on the persistent volume (same `$DATA_DIR` that holds the
- * encrypted Square token). No database — the map is tiny (one cafe's daily
- * order volume) and the file survives container restarts/redeploys.
+ * plain JSON file per tenant on the persistent volume (same `$DATA_DIR`
+ * that holds the encrypted Square tokens). No database — the map is tiny
+ * (one cafe's daily order volume) and the file survives container
+ * restarts/redeploys.
  *
- * Every mutation publishes to the realtime event bus, so all connected
- * tablets see status changes over the existing SSE stream. This is what makes
- * "Mark ready" on one device reflect on every other device.
+ * Every mutation publishes to the tenant's realtime event bus, so all
+ * connected tablets see status changes over the existing SSE stream.
  */
 
-const FILENAME = "order-statuses.json";
+const LEGACY_FILENAME = "order-statuses.json";
 
-function getStoragePath(): string {
-  const dataDir = process.env.DATA_DIR
+function getDataDir(): string {
+  return process.env.DATA_DIR
     ? path.resolve(process.env.DATA_DIR)
     : path.resolve(process.cwd(), ".data");
-  return path.join(dataDir, FILENAME);
+}
+
+function getStoragePath(tenant: TenantId): string {
+  return path.join(getDataDir(), `order-statuses-${tenant}.json`);
 }
 
 declare global {
 
-  var __kdsStatusStore: StatusStore | undefined;
+  var __kdsStatusStores: Map<TenantId, StatusStore> | undefined;
 }
 
 class StatusStore {
@@ -36,20 +40,45 @@ class StatusStore {
   private loaded = false;
   private writeQueue: Promise<void> = Promise.resolve();
 
+  constructor(private readonly tenant: TenantId) {}
+
   async load(): Promise<void> {
     if (this.loaded) return;
     try {
-      const raw = await fs.readFile(getStoragePath(), "utf8");
+      const raw = await fs.readFile(getStoragePath(this.tenant), "utf8");
       const parsed = JSON.parse(raw) as unknown;
       if (parsed && typeof parsed === "object") {
         this.map = parsed as StatusMap;
       }
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        await this.migrateLegacy();
+      } else {
         console.error("[status-store] load failed:", err);
       }
     }
     this.loaded = true;
+  }
+
+  /** Adopt the pre-multi-tenant single status file for Margate. */
+  private async migrateLegacy(): Promise<void> {
+    if (this.tenant !== "margate") return;
+    const legacyPath = path.join(getDataDir(), LEGACY_FILENAME);
+    try {
+      const raw = await fs.readFile(legacyPath, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object") {
+        this.map = parsed as StatusMap;
+      }
+      await fs.mkdir(getDataDir(), { recursive: true });
+      await fs.writeFile(getStoragePath(this.tenant), raw, "utf8");
+      await fs.unlink(legacyPath);
+      console.log("[status-store] migrated legacy order-statuses.json → margate");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("[status-store] legacy migration failed:", err);
+      }
+    }
   }
 
   all(): StatusMap {
@@ -88,7 +117,7 @@ class StatusStore {
     const serialized = JSON.stringify(this.map);
     this.writeQueue = this.writeQueue
       .then(async () => {
-        const filePath = getStoragePath();
+        const filePath = getStoragePath(this.tenant);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, serialized, "utf8");
       })
@@ -98,27 +127,33 @@ class StatusStore {
   }
 }
 
-function store(): StatusStore {
-  if (!globalThis.__kdsStatusStore) {
-    globalThis.__kdsStatusStore = new StatusStore();
+function store(tenant: TenantId): StatusStore {
+  if (!globalThis.__kdsStatusStores) {
+    globalThis.__kdsStatusStores = new Map();
   }
-  return globalThis.__kdsStatusStore;
+  let s = globalThis.__kdsStatusStores.get(tenant);
+  if (!s) {
+    s = new StatusStore(tenant);
+    globalThis.__kdsStatusStores.set(tenant, s);
+  }
+  return s;
 }
 
-export async function getStatusMap(): Promise<StatusMap> {
-  const s = store();
+export async function getStatusMap(tenant: TenantId): Promise<StatusMap> {
+  const s = store(tenant);
   await s.load();
   return s.all();
 }
 
 export async function setOrderStatus(
+  tenant: TenantId,
   orderId: string,
   status: OrderStatus,
 ): Promise<StatusEntry> {
-  const s = store();
+  const s = store(tenant);
   await s.load();
   const entry = s.set(orderId, status);
-  getEventBus().publish({
+  getEventBus(tenant).publish({
     type: "status",
     orderId,
     status,
@@ -127,11 +162,14 @@ export async function setOrderStatus(
   return entry;
 }
 
-export async function clearAllStatuses(): Promise<void> {
-  const s = store();
+export async function clearAllStatuses(tenant: TenantId): Promise<void> {
+  const s = store(tenant);
   await s.load();
   s.clear();
-  getEventBus().publish({ type: "status-reset", at: new Date().toISOString() });
+  getEventBus(tenant).publish({
+    type: "status-reset",
+    at: new Date().toISOString(),
+  });
 }
 
 /**
@@ -140,9 +178,10 @@ export async function clearAllStatuses(): Promise<void> {
  * needed — clients drop these locally when the order leaves the orders feed.
  */
 export async function pruneStatuses(
+  tenant: TenantId,
   activeOrderIds: Set<string>,
 ): Promise<void> {
-  const s = store();
+  const s = store(tenant);
   await s.load();
   const toRemove: string[] = [];
   for (const id of Object.keys(s.all())) {
