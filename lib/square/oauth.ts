@@ -90,6 +90,7 @@ type ObtainTokenResponse = {
 export async function exchangeCodeForToken(
   tenant: TenantId,
   code: string,
+  redirectUri: string,
 ): Promise<ObtainTokenResponse> {
   const cfg = getOAuthConfig(tenant);
   const res = await fetch(`${cfg.baseUrl}/oauth2/token`, {
@@ -104,6 +105,9 @@ export async function exchangeCodeForToken(
       client_secret: cfg.applicationSecret,
       code,
       grant_type: "authorization_code",
+      // Square requires the same redirect_uri that was used in the
+      // authorize request.
+      redirect_uri: redirectUri,
     }),
     cache: "no-store",
   });

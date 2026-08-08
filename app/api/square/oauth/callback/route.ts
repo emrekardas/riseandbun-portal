@@ -50,7 +50,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const tokenResponse = await exchangeCodeForToken(tenant, code);
+    const redirectUri = publicUrl(
+      request,
+      "/api/square/oauth/callback",
+    ).toString();
+    const tokenResponse = await exchangeCodeForToken(tenant, code, redirectUri);
     await writeToken(tenant, {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token,
